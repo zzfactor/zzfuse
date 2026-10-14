@@ -1,0 +1,173 @@
+/* Custom Swagger UI Styles for Trazr App - Deep Dark Mode & Font Fix */
+
+.swagger-ui,
+.swagger-ui * {
+    font-family: 'Inter', 'Geist', 'Segoe UI', 'Helvetica Neue', Arial, 'Liberation Sans', 'sans-serif' !important;
+    color: var(--card-foreground, #e5e7eb) !important;
+}
+
+.swagger-ui .info,
+.swagger-ui .scheme-container,
+.swagger-ui .topbar,
+.swagger-ui .servers,
+.swagger-ui .opblock-tag-section,
+.swagger-ui .opblock,
+.swagger-ui .model-box,
+.swagger-ui .responses-inner,
+.swagger-ui .parameters-container,
+.swagger-ui .parameters,
+.swagger-ui .responses-table,
+.swagger-ui .response,
+.swagger-ui .opblock-section-header,
+.swagger-ui .tab,
+.swagger-ui .table-container {
+    background: var(--card, #18181b) !important;
+    color: var(--card-foreground, #e5e7eb) !important;
+    border-radius: var(--radius-lg, 0.75rem) !important;
+}
+
+.swagger-ui .topbar,
+.swagger-ui .topbar-wrapper {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.swagger-ui .servers {
+    background: var(--card, #18181b) !important;
+    color: var(--card-foreground, #e5e7eb) !important;
+    border-radius: var(--radius-lg, 0.75rem) !important;
+    box-shadow: var(--tw-shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1)) !important;
+    margin-bottom: 2rem !important;
+}
+
+.swagger-ui .info {
+    background: var(--card, #18181b) !important;
+    color: var(--card-foreground, #e5e7eb) !important;
+    border-radius: var(--radius-lg, 0.75rem) !important;
+    margin-bottom: 2rem !important;
+    padding: 2rem !important;
+}
+
+.swagger-ui .opblock {
+    border-radius: var(--radius-lg, 0.75rem) !important;
+    margin-bottom: 1.5rem !important;
+}
+
+.swagger-ui .btn,
+.swagger-ui .authorize,
+.swagger-ui .btn.execute,
+.swagger-ui .tab {
+    background: var(--primary, #2563eb) !important;
+    color: var(--primary-foreground, #fff) !important;
+    border-radius: var(--radius-md, 0.5rem) !important;
+    font-weight: 600 !important;
+    box-shadow: var(--tw-shadow, 0 1px 2px 0 rgba(0, 0, 0, 0.05)) !important;
+}
+
+.swagger-ui input,
+.swagger-ui select,
+.swagger-ui textarea {
+    background: var(--input, #18181b) !important;
+    color: var(--foreground, #fff) !important;
+    border-radius: var(--radius-md, 0.5rem) !important;
+    border: 1px solid var(--border, #27272a) !important;
+}
+
+.swagger-ui .opblock-tag {
+    font-size: 1.25rem !important;
+    font-weight: 700 !important;
+    color: var(--primary, #2563eb) !important;
+}
+
+.swagger-ui .opblock-summary-method {
+    border-radius: var(--radius-md, 0.5rem) !important;
+}
+
+.swagger-ui .model-title,
+.swagger-ui .parameter__name {
+    font-weight: 600 !important;
+}
+
+.swagger-ui .response-col_status,
+.swagger-ui .response-col_description,
+.swagger-ui .response-col_links,
+.swagger-ui .response-col_schema,
+.swagger-ui .response-col_headers,
+.swagger-ui .response-col_examples,
+.swagger-ui .response-col_content,
+.swagger-ui .response-col_type,
+.swagger-ui .response-col_format,
+.swagger-ui .response-col_default,
+.swagger-ui .response-col_enum,
+.swagger-ui .response-col_example,
+.swagger-ui .response-col_value {
+    color: var(--card-foreground, #e5e7eb) !important;
+    background: var(--card, #18181b) !important;
+}
+
+.swagger-ui pre,
+.swagger-ui code {
+    font-family: 'Geist Mono', 'Fira Mono', 'Menlo', 'Monaco', 'Consolas', monospace !important;
+    background: var(--popover, #18181b) !important;
+    color: var(--popover-foreground, #fff) !important;
+    border-radius: var(--radius-md, 0.5rem) !important;
+}
+
+.swagger-ui .markdown p,
+.swagger-ui .markdown h1,
+.swagger-ui .markdown h2,
+.swagger-ui .markdown h3,
+.swagger-ui .markdown h4,
+.swagger-ui .markdown h5,
+.swagger-ui .markdown h6 {
+    color: var(--card-foreground, #e5e7eb) !important;
+}
+
+.swagger-ui .table-container th,
+.swagger-ui .table-container td {
+    background: var(--card, #18181b) !important;
+    color: var(--card-foreground, #e5e7eb) !important;
+    border-color: var(--border, #27272a) !important;
+}
+
+.swagger-ui .opblock-summary-description,
+.swagger-ui .opblock-summary-path,
+.swagger-ui .opblock-summary-operation-id,
+.swagger-ui .opblock-section-header,
+.swagger-ui .tab,
+.swagger-ui .btn,
+.swagger-ui .model-box,
+.swagger-ui .markdown,
+.swagger-ui .parameter__name,
+.swagger-ui .parameter__type,
+.swagger-ui .parameter__in,
+.swagger-ui .parameter__description,
+.swagger-ui .parameter__default,
+.swagger-ui .parameter__enum,
+.swagger-ui .parameter__example,
+.swagger-ui .parameter__value,
+.swagger-ui .parameter__format,
+.swagger-ui .parameter__pattern,
+.swagger-ui .parameter__minimum,
+.swagger-ui .parameter__maximum,
+.swagger-ui .parameter__exclusiveMinimum,
+.swagger-ui .parameter__exclusiveMaximum,
+.swagger-ui .parameter__multipleOf,
+.swagger-ui .parameter__minLength,
+.swagger-ui .parameter__maxLength,
+.swagger-ui .parameter__minItems,
+.swagger-ui .parameter__maxItems,
+.swagger-ui .parameter__uniqueItems,
+.swagger-ui .parameter__minProperties,
+.swagger-ui .parameter__maxProperties,
+.swagger-ui .parameter__readOnly,
+.swagger-ui .parameter__writeOnly,
+.swagger-ui .parameter__nullable,
+.swagger-ui .parameter__deprecated,
+.swagger-ui .parameter__xml,
+.swagger-ui .parameter__externalDocs,
+.swagger-ui .parameter__example,
+.swagger-ui .parameter__examples {
+    color: var(--card-foreground, #e5e7eb) !important;
+    background: var(--card, #18181b) !important;
+}

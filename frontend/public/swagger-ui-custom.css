@@ -1,0 +1,104 @@
+/* Custom Swagger UI Styles for Trazr App */
+
+.swagger-ui,
+.swagger-ui * {
+    font-family: 'Inter', 'Geist', 'Segoe UI', 'Helvetica Neue', Arial, 'Liberation Sans', 'sans-serif' !important;
+    color: var(--card-foreground, #e5e7eb) !important;
+}
+
+.swagger-ui .info,
+.swagger-ui .scheme-container,
+.swagger-ui .topbar,
+.swagger-ui .servers,
+.swagger-ui .opblock-tag-section,
+.swagger-ui .opblock,
+.swagger-ui .model-box,
+.swagger-ui .responses-inner,
+.swagger-ui .parameters-container {
+    background: var(--card, #18181b) !important;
+    color: var(--card-foreground, #e5e7eb) !important;
+    border-radius: var(--radius-lg, 0.75rem) !important;
+}
+
+.swagger-ui .topbar,
+.swagger-ui .topbar-wrapper {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.swagger-ui .servers {
+    background: var(--card, #18181b) !important;
+    color: var(--card-foreground, #e5e7eb) !important;
+    border-radius: var(--radius-lg, 0.75rem) !important;
+    box-shadow: var(--tw-shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1)) !important;
+    margin-bottom: 2rem !important;
+}
+
+.swagger-ui .info {
+    background: var(--card, #18181b) !important;
+    color: var(--card-foreground, #e5e7eb) !important;
+    border-radius: var(--radius-lg, 0.75rem) !important;
+    margin-bottom: 2rem !important;
+    padding: 2rem !important;
+}
+
+.swagger-ui .opblock {
+    border-radius: var(--radius-lg, 0.75rem) !important;
+    margin-bottom: 1.5rem !important;
+}
+
+.swagger-ui .btn,
+.swagger-ui .authorize,
+.swagger-ui .btn.execute {
+    background: var(--primary, #2563eb) !important;
+    color: var(--primary-foreground, #fff) !important;
+    border-radius: var(--radius-md, 0.5rem) !important;
+    font-weight: 600 !important;
+    box-shadow: var(--tw-shadow, 0 1px 2px 0 rgba(0, 0, 0, 0.05)) !important;
+}
+
+.swagger-ui input,
+.swagger-ui select,
+.swagger-ui textarea {
+    background: var(--input, #18181b) !important;
+    color: var(--foreground, #fff) !important;
+    border-radius: var(--radius-md, 0.5rem) !important;
+    border: 1px solid var(--border, #27272a) !important;
+}
+
+.swagger-ui .opblock-tag {
+    font-size: 1.25rem !important;
+    font-weight: 700 !important;
+    color: var(--primary, #2563eb) !important;
+}
+
+.swagger-ui .opblock-summary-method {
+    border-radius: var(--radius-md, 0.5rem) !important;
+}
+
+.swagger-ui .model-title,
+.swagger-ui .parameter__name {
+    font-weight: 600 !important;
+}
+
+.swagger-ui .response-col_status {
+    font-weight: 700 !important;
+}
+
+.swagger-ui pre,
+.swagger-ui code {
+    font-family: 'Geist Mono', 'Fira Mono', 'Menlo', 'Monaco', 'Consolas', monospace !important;
+    background: var(--popover, #18181b) !important;
+    color: var(--popover-foreground, #fff) !important;
+    border-radius: var(--radius-md, 0.5rem) !important;
+}
+
+.swagger-ui .markdown p,
+.swagger-ui .markdown h1,
+.swagger-ui .markdown h2,
+.swagger-ui .markdown h3,
+.swagger-ui .markdown h4,
+.swagger-ui .markdown h5,
+.swagger-ui .markdown h6 {
+    color: var(--card-foreground, #e5e7eb) !important;
+}
