@@ -6,12 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 )
 
 // SQLDatabaseClient provides database operations for embedding-related functionality
 type SQLDatabaseClient struct {
-	DB     *sql.DB
-	Schema string // Database schema name (e.g., "default_schema")
+	DB           *sql.DB
+	Schema       string // Database schema name (e.g., "default_schema")
+	claimsMu     sync.Mutex
+	claimSchemas map[string]bool
 }
 
 // EmbeddingReceipt represents an embedding configuration receipt
@@ -31,9 +35,12 @@ type SignalMetadata struct {
 
 // FetchOptions defines options for fetching unembedded signals
 type FetchOptions struct {
-	UseTransaction bool   // Whether to use a transaction with row locking
-	OrderBy        string // "ASC" for oldest first, "DESC" for newest first
-	LockMode       string // "FOR UPDATE SKIP LOCKED" or empty for no locking
+	UseTransaction       bool       // Whether to use a transaction with row locking
+	OrderBy              string     // "ASC" for oldest first, "DESC" for newest first
+	LockMode             string     // "FOR UPDATE SKIP LOCKED" or empty for no locking
+	StartTime, StopTime  *time.Time // Inclusive lower/exclusive upper timestamp_ns bounds.
+	ConfigurationVersion string
+	LeaseDuration        time.Duration
 }
 
 // DefaultFetchOptions returns default fetch options for simple read-only operations
@@ -60,17 +67,35 @@ func (c *SQLDatabaseClient) FetchUnembeddedSignalsAdvanced(ctx context.Context, 
 	if options == nil {
 		options = DefaultFetchOptions()
 	}
+	if err := validateFetchBounds(options); err != nil {
+		return nil, nil, err
+	}
 
 	// Debug logging for schema parameter
 	if schema == "" {
 		return nil, nil, fmt.Errorf("schema parameter is empty - cannot construct table name")
 	}
 
-	fullTableName := fmt.Sprintf("%s.%s", schema, tableName)
+	fullTableName, err := validatedEmbeddingTable(schema, tableName)
+	if err != nil {
+		return nil, nil, err
+	}
+	if batchSize < 1 || batchSize > 10000 {
+		return nil, nil, fmt.Errorf("invalid embedding batch size")
+	}
 
 	// Build WHERE clause - optimized for PostgreSQL 17 JSONB performance
 	// Use @> operator for optimal GIN index utilization and performance
 	whereClause := fmt.Sprintf("(metadata->>'embeddings' IS NULL OR NOT (metadata->'embeddings' @> '[{\"processor_id\": %d}]'))", configID)
+	var queryArgs []interface{}
+	if options.StartTime != nil {
+		queryArgs = append(queryArgs, options.StartTime.UnixNano())
+		whereClause += fmt.Sprintf(" AND timestamp_ns >= $%d", len(queryArgs))
+	}
+	if options.StopTime != nil {
+		queryArgs = append(queryArgs, options.StopTime.UnixNano())
+		whereClause += fmt.Sprintf(" AND timestamp_ns < $%d", len(queryArgs))
+	}
 
 	// Build SELECT fields from required fields or fallback to full configuration
 	var selectFields string
@@ -118,7 +143,6 @@ func (c *SQLDatabaseClient) FetchUnembeddedSignalsAdvanced(ctx context.Context, 
 
 	// Execute query
 	var rows *sql.Rows
-	var err error
 	var tx *sql.Tx
 
 	if options.UseTransaction {
@@ -126,9 +150,9 @@ func (c *SQLDatabaseClient) FetchUnembeddedSignalsAdvanced(ctx context.Context, 
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to begin transaction: %w", err)
 		}
-		rows, err = tx.QueryContext(ctx, query)
+		rows, err = tx.QueryContext(ctx, query, queryArgs...)
 	} else {
-		rows, err = c.DB.QueryContext(ctx, query)
+		rows, err = c.DB.QueryContext(ctx, query, queryArgs...)
 	}
 
 	if err != nil {

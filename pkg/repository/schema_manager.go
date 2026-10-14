@@ -326,7 +326,10 @@ func (sm *SchemaManager) StartOnDemandWorkers(ctx context.Context, params OnDema
 		params.ApplyDefaults()
 		sm.workerMu.Lock()
 		defer sm.workerMu.Unlock()
-		if err := sm.reloadSchemaWorkers(ctx, params.Schema, params.SignalTypes, params.StartTime, params.StopTime); err != nil {
+		if params.BatchSize < 0 || params.BatchSize > 10000 {
+			return fmt.Errorf("embedding batch size must be between 1 and 10000")
+		}
+		if err := sm.reloadSchemaWorkers(ctx, params.Schema, params.SignalTypes, params.StartTime, params.StopTime, params.BatchSize); err != nil {
 			return fmt.Errorf("failed to reload on-demand workers: %w", err)
 		}
 		resources, _ := sm.GetSchemaResources(params.Schema)
@@ -379,7 +382,7 @@ func (sm *SchemaManager) ReloadSchemaWorkers(ctx context.Context, schemaName str
 
 // reloadSchemaWorkers requires workerMu. Dependencies may acquire mu, so callers
 // must never hold mu across these configuration and worker operations.
-func (sm *SchemaManager) reloadSchemaWorkers(ctx context.Context, schemaName string, signalTypes []string, startTime, stopTime *time.Time) error {
+func (sm *SchemaManager) reloadSchemaWorkers(ctx context.Context, schemaName string, signalTypes []string, startTime, stopTime *time.Time, batchSize ...int) error {
 	resources, exists := sm.GetSchemaResources(schemaName)
 	if !exists {
 		return fmt.Errorf("schema %s not found", schemaName)
@@ -399,7 +402,7 @@ func (sm *SchemaManager) reloadSchemaWorkers(ctx context.Context, schemaName str
 			processors = append(processors, processor)
 		}
 	}
-	return sm.workerManager.ReloadSchemaWorkers(ctx, schemaName, sm.configMgrs, processors, sm.logger, signalTypes, startTime, stopTime)
+	return sm.workerManager.ReloadSchemaWorkers(ctx, schemaName, sm.configMgrs, processors, sm.logger, signalTypes, startTime, stopTime, batchSize...)
 }
 
 // startSchemaWorkers requires workerMu. A stopped worker's cancellation channel

@@ -109,9 +109,12 @@ func (r *usersRepo) UpdateEmailAndName(ctx context.Context, userID int64, email,
 }
 
 func (r *usersRepo) UpdatePasswordHash(ctx context.Context, userID int64, passwordHash string) error {
-	_, err := r.s.exec(ctx, fmt.Sprintf("UPDATE %s.auth_users SET password_hash=$1 WHERE id=$2", r.s.schema), passwordHash, userID)
+	result, err := r.s.exec(ctx, fmt.Sprintf("UPDATE %s.auth_users SET password_hash=$1, auth_version=auth_version+1 WHERE id=$2 AND disabled=FALSE", r.s.schema), passwordHash, userID)
 	if err != nil {
 		return fmt.Errorf("usersRepo.UpdatePasswordHash: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		return errors.New("user unavailable")
 	}
 	return nil
 }
@@ -213,7 +216,7 @@ func (r *usersRepo) DeleteByID(ctx context.Context, userID int64) error {
 
 func (r *identitiesRepo) GetUserIDByProvider(ctx context.Context, provider, providerUserID string) (int64, error) {
 	var userID int64
-	row := r.s.queryRow(ctx, fmt.Sprintf("SELECT user_id FROM %s.auth_identities WHERE provider=$1 AND provider_user_id=$2", r.s.schema), provider, providerUserID)
+	row := r.s.queryRow(ctx, fmt.Sprintf("SELECT user_id FROM %s.auth_user_identities WHERE provider=$1 AND provider_user_id=$2", r.s.schema), provider, providerUserID)
 	if err := row.Scan(&userID); err != nil {
 		if err == sql.ErrNoRows {
 			return 0, nil
@@ -224,7 +227,7 @@ func (r *identitiesRepo) GetUserIDByProvider(ctx context.Context, provider, prov
 }
 
 func (r *identitiesRepo) Link(ctx context.Context, userID int64, provider, providerUserID, email string) error {
-	_, err := r.s.exec(ctx, fmt.Sprintf("INSERT INTO %s.auth_identities (user_id, provider, provider_user_id, email) VALUES ($1,$2,$3,$4) ON CONFLICT (provider, provider_user_id) DO UPDATE SET user_id=EXCLUDED.user_id, email=EXCLUDED.email", r.s.schema), userID, provider, providerUserID, email)
+	_, err := r.s.exec(ctx, fmt.Sprintf("INSERT INTO %s.auth_user_identities (user_id, provider, provider_user_id, email) VALUES ($1,$2,$3,$4) ON CONFLICT (provider, provider_user_id) DO UPDATE SET user_id=EXCLUDED.user_id, email=EXCLUDED.email", r.s.schema), userID, provider, providerUserID, email)
 	if err != nil {
 		return fmt.Errorf("identitiesRepo.Link: %w", err)
 	}

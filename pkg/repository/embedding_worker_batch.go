@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -24,6 +25,32 @@ func (w *EmbeddingWorker) RunBatch(ctx context.Context) error {
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
+	if db, ok := w.DB.(EmbeddingClaimDatabase); ok {
+		// Strong fencing requires vector and claim writes in the same database.
+		typed, ok := w.DB.(*OtelSQLDatabaseClient)
+		if !ok {
+			return fmt.Errorf("unsupported durable embedding database")
+		}
+		if len(w.VectorStoreConfigs) == 0 {
+			return fmt.Errorf("durable SQL workers require configured vector stores")
+		}
+		if w.SignalType == SignalTypeSpans && w.ContentProcessingMode() == "template_plus" {
+			return fmt.Errorf("durable template_plus requires a secondary-effect protocol and is unsupported")
+		}
+		for _, config := range w.VectorStoreConfigs {
+			store, ok := config.VectorStore.(interface{ SupportsEmbeddingClaims(*sql.DB) bool })
+			if !ok || !store.SupportsEmbeddingClaims(typed.SQLDatabaseClient.DB) {
+				return fmt.Errorf("durable embedding workers require local PostgreSQL vector storage")
+			}
+		}
+		lease := defaultEmbeddingLease
+		if w.FetchOptions != nil && w.FetchOptions.LeaseDuration > 0 {
+			lease = w.FetchOptions.LeaseDuration
+		}
+		session, leaseCtx := newEmbeddingLeaseSession(ctx, db, lease, w.stopped)
+		ctx = leaseCtx
+		defer session.close()
+	}
 
 	w.Logger.Info("Starting batch processing",
 		zap.String("signal_type", w.SignalType),
@@ -49,9 +76,15 @@ func (w *EmbeddingWorker) RunBatch(ctx context.Context) error {
 
 	// Process the batch
 	if err := w.processBatchInternal(ctx); err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			err = cause
+		}
 		w.Logger.Error("Batch processing failed", "error", err, "signal_type", w.SignalType, "worker_id", w.WorkerID)
 		w.ReportError(err)
 		return fmt.Errorf("batch processing failed: %w", err)
+	}
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
 	}
 
 	w.Logger.Debug("Batch processing completed successfully", "signal_type", w.SignalType, "worker_id", w.WorkerID)
@@ -70,6 +103,16 @@ func (w *EmbeddingWorker) processBatchInternal(ctx context.Context) error {
 	if len(signals) == 0 {
 		w.Logger.Info("No signals to process", "signal_type", w.SignalType, "processor_id", w.ConfigID)
 		return nil
+	}
+	if session := embeddingSession(ctx); session != nil {
+		var err error
+		signals, err = session.recover(ctx, signals)
+		if err != nil {
+			return fmt.Errorf("recover embedding receipts: %w", err)
+		}
+		if len(signals) == 0 {
+			return nil
+		}
 	}
 
 	// 2. Process (Grouped or Chunked)
@@ -199,13 +242,12 @@ func (w *EmbeddingWorker) fetchSignals(ctx context.Context) ([]map[string]interf
 				"vector_store", vsKey)
 
 			// Query database for signals not embedded by this specific config ID
-			signals, _, err := w.DB.FetchUnembeddedSignalsAdvanced(
+			signals, err := w.fetchVectorStoreSignals(
 				ctx,
 				w.SignalType,
 				w.BatchSize,
 				vsConfig.ConfigID, // ✅ Query for specific config ID
 				w.Schema,
-				DefaultFetchOptions(),
 				requiredFields,
 			)
 			if err != nil {
@@ -230,6 +272,28 @@ func (w *EmbeddingWorker) fetchSignals(ctx context.Context) ([]map[string]interf
 
 	w.Logger.Info("Fetched and validated signals", "count", len(allSignals), "signal_type", w.SignalType, "processor_id", w.ConfigID)
 	return allSignals, nil
+}
+
+func (w *EmbeddingWorker) fetchVectorStoreSignals(ctx context.Context, table string, batch int, configID int64, schema string, fields []SignalFieldConfig) ([]map[string]interface{}, error) {
+	options := DefaultFetchOptions()
+	if w.FetchOptions != nil {
+		copy := *w.FetchOptions
+		options = &copy
+	}
+	if session := embeddingSession(ctx); session != nil {
+		signals, claims, err := session.db.ClaimEmbeddingSignals(ctx, table, batch, configID, schema, options, fields)
+		if err != nil {
+			return nil, err
+		}
+		session.add(claims)
+		return signals, nil
+	}
+	signals, tx, err := w.DB.FetchUnembeddedSignalsAdvanced(ctx, table, batch, configID, schema, options, fields)
+	if tx != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("worker fetch must not retain a row-lock transaction during inference")
+	}
+	return signals, err
 }
 
 // getRequiredFieldsFromTemplates extracts required fields from template content and metadata
@@ -687,6 +751,7 @@ func (w *EmbeddingWorker) embedBatch(ctx context.Context, batch []map[string]int
 				// Individual documents with unique metadata per vector store
 				for i, sig := range signals {
 					metadata := w.extractMetadataFromSignal(sig, signalType, vsKey)
+					attachEmbeddingFences(metadata, []map[string]interface{}{sig})
 
 					// Add vector store specific internal fields
 					if internal, ok := metadata["internal"].(map[string]interface{}); ok {
@@ -699,6 +764,9 @@ func (w *EmbeddingWorker) embedBatch(ctx context.Context, batch []map[string]int
 						Metadata:    metadata,
 					})
 				}
+			}
+			if grouped {
+				attachEmbeddingFences(docs[0].Metadata, signals)
 			}
 
 			// Add to this specific vector store
@@ -713,7 +781,18 @@ func (w *EmbeddingWorker) embedBatch(ctx context.Context, batch []map[string]int
 
 			// Mark as embedded with this specific config ID
 			signalIDs := w.extractSignalIDs(signals)
-			err = w.DB.MarkSignalsEmbeddedAdvanced(ctx, signalType, signalIDs, vsConfig.ConfigID, embeddedIDs, w.Schema)
+			if session := embeddingSession(ctx); session != nil {
+				err = session.complete(ctx, signals, embeddedIDs)
+			} else {
+				if grouped && len(embeddedIDs) == 1 {
+					id := embeddedIDs[0]
+					embeddedIDs = make([]string, len(signalIDs))
+					for i := range embeddedIDs {
+						embeddedIDs[i] = id
+					}
+				}
+				err = w.DB.MarkSignalsEmbeddedAdvanced(ctx, signalType, signalIDs, vsConfig.ConfigID, embeddedIDs, w.Schema)
+			}
 			if err != nil {
 				w.Logger.Error("Failed to mark signals as embedded",
 					"vector_store", vsKey,

@@ -8,9 +8,11 @@ require (
 	github.com/medxops/trazr-otel/trazrexporter v0.1.0
 	github.com/medxops/trazr-otel/trazrextension v0.1.0
 	github.com/medxops/trazr-otel/trazrprocessor v0.1.0
+	github.com/medxops/trazr-otel/zzfuseauth v0.1.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter v0.163.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/fileexporter v0.163.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.163.0
+	github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.163.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/redactionprocessor v0.163.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/spanprocessor v0.163.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.163.0
@@ -182,6 +184,7 @@ require (
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
+	go.etcd.io/bbolt v1.5.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/collector/client v1.69.0 // indirect
 	go.opentelemetry.io/collector/component/componentstatus v0.163.0 // indirect
@@ -298,6 +301,8 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/medxops/trazr-otel/zzfuseauth => ../zzfuseauth
 
 replace github.com/medxops/trazr-otel/trazrprocessor => ../trazrprocessor
 

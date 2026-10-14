@@ -317,6 +317,8 @@ github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding/otl
 github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding/otlpencodingextension v0.163.0/go.mod h1:FuaE45WQVz+JOLA3khPg0grRJeL56yLsmhIpKgEsK5w=
 github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.163.0 h1:q81KTMTVcskHlGYbVaWeyASLtu/mOabXHTBEqPNy+pc=
 github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.163.0/go.mod h1:1sNa7Hjfc9J7y8+r7oS8IBch+tvmK+VNS815nJyUSBo=
+github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.163.0 h1:saGD4Bbr8j9TESA95T4DswwPbPxTyoSa0G/MwMHvBAo=
+github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.163.0/go.mod h1:dKJB77A9ftXOMd1C+opmRr2OP4+5DLYHncasrVSWfX0=
 github.com/open-telemetry/opentelemetry-collector-contrib/internal/common v0.163.0 h1:DoSTZq/iCciGmghpJ0RNv944Sl0UW1pwHWqlYku1BiA=
 github.com/open-telemetry/opentelemetry-collector-contrib/internal/common v0.163.0/go.mod h1:7QKd+u6KEnn8plZ+R2gzXNFXnwXe5UZrYU2/RpzmiEE=
 github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal v0.163.0 h1:AgaFAQIDUrSctGYRaKhj1RY8VVG3qYBN86ulEPEhwEI=
@@ -467,6 +469,8 @@ github.com/zeebo/assert v1.3.0 h1:g7C04CbJuIDKNPFHmsk4hwZDO5O+kntRxzaUoNXj+IQ=
 github.com/zeebo/assert v1.3.0/go.mod h1:Pq9JiuJQpG8JLJdtkwrJESF0Foym2/D9XMU5ciN/wJ0=
 github.com/zeebo/xxh3 v1.1.0 h1:s7DLGDK45Dyfg7++yxI0khrfwq9661w9EN78eP/UZVs=
 github.com/zeebo/xxh3 v1.1.0/go.mod h1:IisAie1LELR4xhVinxWS5+zf1lA4p0MW4T+w+W07F5s=
+go.etcd.io/bbolt v1.5.0 h1:S7GAl7Fxv12yohbwFfIbQCGDWbQbtDGPET4P/bD4lxU=
+go.etcd.io/bbolt v1.5.0/go.mod h1:mkltfYE5aUHQxUct9N9V+Kp7aSjFqjgrhcXIS70Lrdk=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
 go.opentelemetry.io/collector/client v1.69.0 h1:JaWIacYOkEq2aajAuNltTy7elsIpSPdNMe/I3+b28bY=

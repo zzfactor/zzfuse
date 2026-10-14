@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"maps"
 	"runtime"
 	"strings"
 	"sync"
@@ -83,6 +84,7 @@ type EmbeddingWorker struct {
 	// Config
 	ChunkingConfig   map[string]string
 	FilterConfig     map[string]interface{}
+	FetchOptions     *FetchOptions
 	MaxContextLength int                    // NEW: enforce token limit from embedding config
 	Metadata         map[string]interface{} // Metadata from ProcessorMappingConfig
 	metadataConfig   metadataConfig         // Parsed metadata configuration
@@ -120,6 +122,15 @@ type EmbeddingWorkerOption func(*EmbeddingWorker)
 // WithBatchSize sets the batch size for the worker. Use to tune throughput vs. memory usage.
 func WithBatchSize(size int) EmbeddingWorkerOption {
 	return func(w *EmbeddingWorker) { w.BaseWorker.BatchSize = size }
+}
+
+func WithWorkerFetchOptions(options *FetchOptions) EmbeddingWorkerOption {
+	return func(w *EmbeddingWorker) {
+		if options != nil {
+			copy := *options
+			w.FetchOptions = &copy
+		}
+	}
 }
 
 // WithChunkingConfig sets the chunking config for the worker. Config string format: key1=val1;key2=val2. See chunkSignals for parsing logic.
@@ -171,7 +182,7 @@ func WithWorkerID(id string) EmbeddingWorkerOption {
 
 // WithMetadata sets the metadata configuration for the worker.
 func WithMetadata(metadata map[string]interface{}) EmbeddingWorkerOption {
-	return func(w *EmbeddingWorker) { w.Metadata = metadata }
+	return func(w *EmbeddingWorker) { w.Metadata = maps.Clone(metadata) }
 }
 
 // WithContentProcessingMode sets the content processing mode for the worker.
@@ -560,6 +571,14 @@ func (w *EmbeddingWorker) startTriggerMode() {
 		w.Logger.Debug("Subscribed to event bus for trigger mode", "schema", schema, "event_types", eventTypes, "subscription_count", len(subscriptions))
 
 		// Debounce loop with race-safe timer handling
+		// Notifications reduce latency. Database polling remains authoritative
+		// when delivery is missed, NATS reconnects, or an expired lease returns.
+		pollInterval := w.metadataConfig.BatchInterval
+		if pollInterval <= 0 {
+			pollInterval = 5 * time.Second
+		}
+		pollTicker := time.NewTicker(pollInterval)
+		defer pollTicker.Stop()
 		debounceDelay := w.DebounceDelay()
 		var triggerCount int
 		var timerActive bool
@@ -610,6 +629,10 @@ func (w *EmbeddingWorker) startTriggerMode() {
 				}
 				triggerCount++
 				resetTimer()
+			case <-pollTicker.C:
+				if !w.IsPaused() {
+					w.executeBatchWithProtection("trigger-poll")
+				}
 			case <-debounceTimer.C:
 				timerActive = false
 				if w.IsPaused() {

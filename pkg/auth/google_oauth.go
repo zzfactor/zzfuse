@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/coreos/go-oidc"
 	pgstore "github.com/medxops/trazr-otel/pkg/auth/storage/pg"
@@ -85,6 +86,10 @@ func GoogleLoginHandler(w http.ResponseWriter, r *http.Request) {
 func GoogleCallbackHandler(db *sql.DB, jwtIssuer func(userID int64, email string) (string, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		if db == nil || googleVerifier == nil {
+			http.Error(w, "OAuth unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		code := r.URL.Query().Get("code")
 		state := r.URL.Query().Get("state")
 		stateCookie, _ := r.Cookie("oauth_state")
@@ -128,7 +133,7 @@ func GoogleCallbackHandler(db *sql.DB, jwtIssuer func(userID int64, email string
 		// Find or create/link user (transaction)
 		var userID int64
 		var exists bool
-		err = db.QueryRowContext(ctx, fmt.Sprintf("SELECT user_id FROM %s.auth_identities WHERE provider=$1 AND provider_user_id=$2", pgstore.DefaultConfigSchema), "google", claims.Sub).Scan(&userID)
+		err = db.QueryRowContext(ctx, fmt.Sprintf("SELECT user_id FROM %s.auth_user_identities WHERE provider=$1 AND provider_user_id=$2", pgstore.DefaultConfigSchema), "google", claims.Sub).Scan(&userID)
 		if err == sql.ErrNoRows {
 			tx, txErr := db.BeginTx(ctx, nil)
 			if txErr != nil {
@@ -146,7 +151,7 @@ func GoogleCallbackHandler(db *sql.DB, jwtIssuer func(userID int64, email string
 				}
 				userID = newUserID
 			}
-			_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.auth_identities (user_id, provider, provider_user_id, email) VALUES ($1, $2, $3, $4)", pgstore.DefaultConfigSchema), userID, "google", claims.Sub, claims.Email)
+			_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.auth_user_identities (user_id, provider, provider_user_id, email) VALUES ($1, $2, $3, $4)", pgstore.DefaultConfigSchema), userID, "google", claims.Sub, claims.Email)
 			if err != nil {
 				http.Error(w, "failed to link identity", http.StatusInternalServerError)
 				return
@@ -162,7 +167,7 @@ func GoogleCallbackHandler(db *sql.DB, jwtIssuer func(userID int64, email string
 			return
 		}
 		// Issue JWT
-		token, err := jwtIssuer(userID, claims.Email)
+		token, err := IssueSessionJWT(ctx, db, userID, 24*time.Hour, nil, nil, nil)
 		if err != nil {
 			http.Error(w, "failed to issue token", http.StatusInternalServerError)
 			return

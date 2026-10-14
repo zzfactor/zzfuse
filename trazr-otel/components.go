@@ -15,6 +15,8 @@ import (
 	fileexporter "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/fileexporter"
 	debugexporter "go.opentelemetry.io/collector/exporter/debugexporter"
 	trazr2 "github.com/medxops/trazr-otel/trazrexporter"
+	zzfuseauth "github.com/medxops/trazr-otel/zzfuseauth"
+	filestorage "github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage"
 	trazr "github.com/medxops/trazr-otel/trazrextension"
 	healthcheckextension "github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension"
 	trazr3 "github.com/medxops/trazr-otel/trazrprocessor"
@@ -47,6 +49,8 @@ func components() (otelcol.Factories, error) {
 	}
 
 	factories.Extensions, err = otelcol.MakeFactoryMap[extension.Factory](
+		zzfuseauth.NewFactory(),
+		filestorage.NewFactory(),
 		trazr.NewFactory(),
 		healthcheckextension.NewFactory(),
 	)
@@ -54,6 +58,8 @@ func components() (otelcol.Factories, error) {
 		return otelcol.Factories{}, err
 	}
 	factories.ExtensionModules = makeModulesMap(factories.Extensions, map[component.Type]string{
+		zzfuseauth.NewFactory().Type(): "github.com/medxops/trazr-otel/zzfuseauth v0.1.0",
+		filestorage.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.163.0",
 		trazr.NewFactory().Type(): "github.com/medxops/trazr-otel/trazrextension v0.1.0",
 		healthcheckextension.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.163.0",
 	})

@@ -10,7 +10,6 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib" // PostgreSQL driver
 	"github.com/medxops/trazr-otel/pkg/repository"
-	"github.com/medxops/trazr-otel/trazrexporter/internal"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.opentelemetry.io/otel/attribute"
@@ -58,6 +57,11 @@ func (e *profilesExporter) start(ctx context.Context, host component.Host) error
 // schema routing. Validation/routing errors precede all writes; mixed-schema
 // requests cannot copy unused foreign dictionary data into another schema.
 func (e *profilesExporter) pushProfileData(ctx context.Context, pd pprofile.Profiles) error {
+	tenantSchema, err := e.tenantSchema(ctx)
+	if err != nil {
+		return err
+	}
+
 	if span := trace.SpanFromContext(ctx); span != nil && span.IsRecording() {
 		span.AddEvent("pushProfileData called", trace.WithAttributes(
 			attribute.Int("num_resource_profiles", pd.ResourceProfiles().Len()),
@@ -69,24 +73,10 @@ func (e *profilesExporter) pushProfileData(ctx context.Context, pd pprofile.Prof
 		return fmt.Errorf("isolate profiles: %w", err)
 	}
 	groups := make(map[string][]repository.ProfileEntry)
-	resourceSchemas := make(map[int]string)
 	// All rows are validated and isolated before any schema's writes begin.
 	// Empty resources and orphan dictionary values cannot cross this boundary.
 	for _, row := range rows {
-		res := row.Data.ResourceProfiles().At(0).Resource()
-		schema, ok := resourceSchemas[row.ResourceIndex]
-		if !ok {
-			name, namespace := internal.GetServiceName(res.Attributes()), internal.GetServiceNamespace(res.Attributes())
-			resolved, found, err := e.srm.GetSchema(name, namespace)
-			if err != nil {
-				return fmt.Errorf("resolve profile schema: %w", err)
-			}
-			if !found || resolved == "" {
-				return fmt.Errorf("profile resource has no target schema")
-			}
-			schema = resolved
-			resourceSchemas[row.ResourceIndex] = schema
-		}
+		schema := tenantSchema
 		entry, err := repository.ProfileEntryFromProfiles(row.Data, time.Now().UTC())
 		if err != nil {
 			return fmt.Errorf("convert profile: %w", err)

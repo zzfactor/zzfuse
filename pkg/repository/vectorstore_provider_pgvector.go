@@ -184,6 +184,9 @@ func (s *PGVectorCustomStore) InsertEmbeddingRaw(ctx context.Context, timestampN
 	if err != nil {
 		return 0, err
 	}
+	if claims, ok := metadata[claimMetadataKey].([]EmbeddingClaim); ok && len(claims) > 0 {
+		return s.insertFencedEmbedding(ctx, timestampNS, embeddingValue, serviceName, content, metadata, claims)
+	}
 
 	// Test connection before proceeding
 	if err := s.db.PingContext(ctx); err != nil {

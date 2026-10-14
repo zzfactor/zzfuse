@@ -19,9 +19,18 @@
 - [x] Repair current-DDL span/metric readback, metric typed IDs, and vector content/hash/precision contracts.
 - [x] Audit source/history and create the public zzfactor/zzfuse repository from a fresh snapshot.
 
+- [x] Deny empty nonadministrator schema grants and validate current database-backed account/session/key state across HTTP and WebSockets.
+- [x] Bind HTTP/gRPC ingestion credentials to fixed tenant schemas and retain authenticated identity through a persistent queue.
+- [x] Add administrator grant/account/session controls, browser logout revocation, and last-administrator protection.
+- [x] Coordinate durable worker claims, fenced PGVector/receipt commits, crash recovery, polling, time bounds and requested batch sizes.
+- [x] Verify real two-tenant ingestion, API-key scopes, live-stream revocation and forced-crash WAL recovery.
+- [x] Persist requested schema configuration fields and preserve explicit exponential-histogram destination schemas.
+
 ## Future work
 
-- [ ] Enforce database-backed JWT session revocation across Collector HTTP/WebSocket routes, including password reset and logout.
-- [ ] Apply on-demand worker time bounds and requested batch sizes to signal fetches.
+- [ ] Implement separate durability protocols before enabling external vector stores or secondary `template_plus` trace effects in durable workers.
+- [ ] Run workload-specific capacity and replica-failover tests; design separate worker/API deployment when resource isolation is required.
+- [ ] Review the outstanding frontend dependency PR against the hardened full-stack baseline.
+- [ ] Rotate any active credentials from retained legacy history in their owning services.
 
 See [architecture](docs/architecture.md) and [development](docs/development.md).

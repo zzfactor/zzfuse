@@ -121,6 +121,15 @@ func (r *SchemaConfigRepository) Upsert(ctx context.Context, config *DatabaseSch
 	if config.Name == "" {
 		return fmt.Errorf("schema config name is required")
 	}
+	if config.ID > 0 {
+		existing, err := r.GetByID(ctx, config.ID)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			return r.Update(ctx, config)
+		}
+	}
 	existing, err := r.GetByName(ctx, config.Name)
 	if err != nil {
 		return err
@@ -161,23 +170,30 @@ func (r *SchemaConfigRepository) GetAllEnabled(ctx context.Context) ([]*Database
 // Non-interface methods (helpers, internal logic)
 
 func (r *SchemaConfigRepository) Create(ctx context.Context, config *DatabaseSchemaConfig) error {
+	routingJSON, err := json.Marshal(config.Routing)
+	if err != nil {
+		return fmt.Errorf("failed to marshal routing: %w", err)
+	}
 	metadataJSON, err := json.Marshal(config.Metadata)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
-	query := fmt.Sprintf(`INSERT INTO %s (name, schema, description, priority, metadata) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at, updated_at`, r.getTableName())
-	err = r.DB.QueryRowContext(ctx, query, config.Name, config.DatabaseSchema, config.Description, config.Priority, string(metadataJSON)).Scan(&config.ID, &config.CreatedAt, &config.UpdatedAt)
+	query := fmt.Sprintf(`INSERT INTO %s (name, schema, enabled, description, routing, priority, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, created_at, updated_at`, r.getTableName())
+	err = r.DB.QueryRowContext(ctx, query, config.Name, config.DatabaseSchema, config.Enabled, config.Description, string(routingJSON), config.Priority, string(metadataJSON)).Scan(&config.ID, &config.CreatedAt, &config.UpdatedAt)
 	return err
 }
 
 func (r *SchemaConfigRepository) Update(ctx context.Context, config *DatabaseSchemaConfig) error {
+	routingJSON, err := json.Marshal(config.Routing)
+	if err != nil {
+		return fmt.Errorf("failed to marshal routing: %w", err)
+	}
 	metadataJSON, err := json.Marshal(config.Metadata)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
-	query := fmt.Sprintf(`UPDATE %s SET schema = $1, description = $2, priority = $3, metadata = $4, updated_at = NOW() WHERE id = $5`, r.getTableName())
-	_, err = r.DB.ExecContext(ctx, query, config.DatabaseSchema, config.Description, config.Priority, string(metadataJSON), config.ID)
-	return err
+	query := fmt.Sprintf(`UPDATE %s SET name = $1, schema = $2, enabled = $3, description = $4, routing = $5, priority = $6, metadata = $7, updated_at = NOW() WHERE id = $8 RETURNING updated_at`, r.getTableName())
+	return r.DB.QueryRowContext(ctx, query, config.Name, config.DatabaseSchema, config.Enabled, config.Description, string(routingJSON), config.Priority, string(metadataJSON), config.ID).Scan(&config.UpdatedAt)
 }
 
 func (r *SchemaConfigRepository) EnsureTableAndDefault(ctx context.Context, otel_schema string) error {
@@ -204,6 +220,7 @@ func (r *SchemaConfigRepository) EnsureTableAndDefault(ctx context.Context, otel
 			ID:             1,
 			Name:           otel_schema,
 			DatabaseSchema: otel_schema,
+			Enabled:        true,
 			Description:    "",
 			Metadata:       map[string]interface{}{},
 			CreatedAt:      time.Now(),

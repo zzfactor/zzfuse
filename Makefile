@@ -5,7 +5,7 @@ GO ?= go
 PYTHON ?= services/.venv/bin/python
 IMAGE ?= zzfactor/zzfuse:dev
 GOARCH ?= $(shell $(GO) env GOARCH)
-GO_MODULES := pkg/auth pkg/auth/client pkg/config pkg/event pkg/metrics pkg/repository pkg/util trazrexporter trazrextension trazrprocessor trazr-mcp trazr-otel
+GO_MODULES := pkg/auth pkg/auth/client pkg/config pkg/event pkg/metrics pkg/repository pkg/util zzfuseauth trazrexporter trazrextension trazrprocessor trazr-mcp trazr-otel
 
 .PHONY: help build test vet go-check verify frontend-install frontend-dev frontend-check python-install python-test docs-check install-ocb generate docker profile-e2e database-image stack-images stack-e2e
 

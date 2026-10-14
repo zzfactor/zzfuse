@@ -188,7 +188,7 @@ func TestSignalHandlersSchemaAuthorization(t *testing.T) {
 		{"default denied", "", &auth.UserContext{Schemas: []string{"tenant_a"}}, http.StatusForbidden},
 		{"default allowed", "", &auth.UserContext{Schemas: []string{DefaultSchema}}, http.StatusOK},
 		{"admin", "tenant_b", &auth.UserContext{Schemas: []string{"tenant_a"}, Roles: []string{"admin"}}, http.StatusOK},
-		{"unrestricted", "tenant_b", &auth.UserContext{}, http.StatusOK},
+		{"empty grants deny", "tenant_b", &auth.UserContext{}, http.StatusForbidden},
 		{"missing user", "tenant_a", nil, http.StatusUnauthorized},
 	}
 	for _, endpoint := range endpoints {

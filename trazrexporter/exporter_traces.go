@@ -61,6 +61,11 @@ func (e *spansExporter) start(ctx context.Context, host component.Host) error {
 //
 // This approach maximizes performance through early filtering and supports routing to multiple schemas.
 func (e *spansExporter) pushTraceData(ctx context.Context, td ptrace.Traces) error {
+	tenantSchema, err := e.tenantSchema(ctx)
+	if err != nil {
+		return err
+	}
+
 	if span := trace.SpanFromContext(ctx); span != nil && span.IsRecording() {
 		span.AddEvent("pushTraceData called", trace.WithAttributes(
 			attribute.Int("num_resource_spans", td.ResourceSpans().Len()),
@@ -74,17 +79,7 @@ func (e *spansExporter) pushTraceData(ctx context.Context, td ptrace.Traces) err
 		res := resourceSpan.Resource()
 
 		serviceName := internal.GetServiceName(res.Attributes()) // Original service name
-		serviceNamespace := internal.GetServiceNamespace(res.Attributes())
-		schema, found, err := e.srm.GetSchema(serviceName, serviceNamespace)
-		if err != nil {
-			return fmt.Errorf("failed to get schema for service %s: %w", serviceName, err)
-		}
-		if !found {
-			e.logger.Debug("Skipping ResourceSpans - schema not found",
-				zap.String("service_name", serviceName),
-				zap.String("service_namespace", serviceNamespace))
-			continue // Skip entire ResourceSpans if schema not found
-		}
+		schema := tenantSchema
 
 		// Marshal resource attributes once per ResourceSpans (immutable)
 		resourceAttrsJSON, _ := json.Marshal(internal.AttributesToMap(res.Attributes()))
@@ -112,15 +107,15 @@ func (e *spansExporter) pushTraceData(ctx context.Context, td ptrace.Traces) err
 
 				spanFlags := int32(span.Flags())
 				entry := repository.TraceEntry{
-					TimestampNS:           timestamp.Time.UnixNano(),
-					Timestamp:             timestamp.Time,
-					TraceID:               traceID,
-					SpanID:                spanID,
-					ParentSpanID:          internal.PtrFromString(parentSpanID),
-					TraceState:            internal.PtrFromString(span.TraceState().AsRaw()),
-					Flags:                 &spanFlags,
-					Name:                  span.Name(),
-					SpanKind:              span.Kind().String(),
+					TimestampNS:  timestamp.Time.UnixNano(),
+					Timestamp:    timestamp.Time,
+					TraceID:      traceID,
+					SpanID:       spanID,
+					ParentSpanID: internal.PtrFromString(parentSpanID),
+					TraceState:   internal.PtrFromString(span.TraceState().AsRaw()),
+					Flags:        &spanFlags,
+					Name:         span.Name(),
+					SpanKind:     span.Kind().String(),
 					// Service entity fields (OTel v1.39.0)
 					ServiceName:           serviceName, // Original service name
 					ServiceNamespace:      internal.GetServiceNamespacePtr(res.Attributes()),

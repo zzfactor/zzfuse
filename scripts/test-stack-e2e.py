@@ -8,6 +8,7 @@ host database volumes, production services, or external email recipients are use
 
 import argparse
 import base64
+import copy
 import json
 import math
 import os
@@ -55,9 +56,9 @@ def run(*command, input=None, env=None, cwd=None, timeout=90, combined=False):
     return (stdout + stderr if combined else stdout).strip()
 
 
-def request(url, *, data=None, headers=None, timeout=10):
+def request(url, *, data=None, headers=None, timeout=10, method=None):
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers or {}),
+        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers or {}, method=method),
                                     timeout=timeout) as response:
             return response.status, response.read()
     except urllib.error.HTTPError as error:
@@ -71,6 +72,8 @@ def json_request(url, *, body=None, headers=None, timeout=10):
         combined["Content-Type"] = "application/json"
         data = json.dumps(body).encode()
     status, raw = request(url, data=data, headers=combined, timeout=timeout)
+    if not raw:
+        return status, None
     try:
         value = json.loads(raw)
     except json.JSONDecodeError:
@@ -98,6 +101,162 @@ def env_file(directory, name, values):
     target.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
     target.chmod(0o600)
     return target
+
+
+def tenant_security_checks(stack, api, otlp, sql, collector, database, mailpit, admin_auth,
+                           payloads, profiles, tenant_keys, browser_env):
+    """Exercise real login, grants, sessions, tenant writes and WAL crash recovery."""
+    for priority, schema in enumerate(("tenant_a", "tenant_b"), start=10):
+        status, response = json_request(api + "/config/schemas", headers=admin_auth, body={
+            "name": schema, "enabled": True, "priority": priority,
+            "config": {"database_schema": schema, "routing": {}},
+        })
+        check(status == 201, stack.redact(f"Tenant schema {schema} configuration failed: HTTP {status}; {json.dumps(response)}"))
+    run("docker", "restart", collector, timeout=45)
+    run("docker", "restart", mailpit, timeout=45)
+    wait_for(lambda: request(api + "/health")[0] == 200, "Collector tenant restart")
+
+    account = {"username": "tenant" + stack.owner, "email": "tenant-" + stack.owner + "@example.test",
+               "password": secrets.token_hex(16)}
+    stack.secrets.append(account["password"])
+    status, registered = json_request(api + "/auth/register", body=account)
+    check(status == 201, "Ordinary account registration failed")
+    user_id = registered["id"]
+
+    def login():
+        status, session = json_request(api + "/auth/login", body=account)
+        check(status == 200, "Ordinary account login failed")
+        stack.secrets.append(session["token"])
+        return {"Authorization": "Bearer " + session["token"]}
+
+    user_auth = login()
+    common = "&cursor=MHww&direction=asc&limit=100"
+    check(request(api + "/logs?schema=otel" + common, headers=user_auth)[0] == 403,
+          "Empty ordinary-user grants allowed telemetry access")
+    check(json_request(api + "/schemas", headers=user_auth)[1]["schemas"] == [],
+          "Schema discovery exposed other tenants")
+    for path, body in (("schemas", {"user_id": user_id, "schemas": ["tenant_b"]}),
+                       ("roles", {"user_id": user_id, "roles": ["admin"]})):
+        check(json_request(api + "/admin/user/" + path, headers=user_auth, body=body)[0] == 403,
+              "Ordinary user changed administrative access")
+    check(json_request(api + "/admin/user/schemas", headers=admin_auth,
+                       body={"user_id": user_id, "schemas": ["tenant_a"]})[0] == 200,
+          "Administrator schema grant failed")
+    for schema, key in zip(("tenant_a", "tenant_b"), tenant_keys):
+        headers = {"Authorization": "Bearer " + key}
+        for kind, payload in payloads.items():
+            # Exact same service labels match the original default routing.
+            # Only the credential is permitted to select the destination.
+            check(json_request(otlp + "/v1/" + kind, body=payload, headers=headers)[0] == 200,
+                  f"Credential-scoped {kind} ingestion failed")
+        check(request(otlp + "/v1development/profiles", data=profiles,
+                      headers={**headers, "Content-Type": "application/x-protobuf",
+                               "OTLP-Profiles-Development-Version": "1"})[0] == 200,
+              "Credential-scoped profile ingestion failed")
+        wait_for(lambda schema=schema: sql(f"SELECT count(*) FROM {schema}.logs;") == "2", "Tenant logs")
+        wait_for(lambda schema=schema: sql(f"SELECT count(*) FROM {schema}.spans;") == "1", "Tenant spans")
+        for kind in ("gauge", "sum", "histogram", "summary", "exponential_histogram"):
+            wait_for(lambda schema=schema, kind=kind: sql(f"SELECT count(*) FROM {schema}.{kind}_metrics;") == "1",
+                     "Tenant metric routing")
+        wait_for(lambda schema=schema: int(sql(f"SELECT count(*) FROM {schema}.profiles;")) > 0, "Tenant profiles")
+    check(sql("SELECT count(*) FROM otel.logs;") == "2", "Tenant writes leaked into default schema")
+    check(request(api + "/logs?schema=tenant_a" + common, headers=user_auth)[0] == 200,
+          "Current grant did not apply to an already-issued user token")
+    for path in ("logs", "spans", "profiles", "metrics?type=gauge"):
+        separator = "&" if "?" in path else "?"
+        check(request(api + "/" + path + separator + "schema=tenant_b" + common, headers=user_auth)[0] == 403,
+              "Restricted user read another tenant")
+    visible = json_request(api + "/schemas", headers=user_auth)[1]
+    check([schema["schema"] for schema in visible["schemas"]] == ["tenant_a"], "Schema list ignored grants")
+    check(browser_test(browser_env, {"mode": "tenant-stream", "api": api,
+        "adminJwt": admin_auth["Authorization"][7:], "jwt": user_auth["Authorization"][7:],
+        "userId": user_id}) == {"revocation": "passed"}, "Live WebSocket revocation failed")
+    check(request(api + "/logs?schema=tenant_a" + common, headers=user_auth)[0] == 403,
+          "Grant removal did not apply to existing JWT")
+    check(json_request(api + "/admin/user/schemas", headers=admin_auth,
+                       body={"user_id": user_id, "schemas": ["tenant_a"]})[0] == 200, "Grant restoration failed")
+    disposable_session = login()
+    check(request(api + "/auth/logout", data=b"", headers=disposable_session)[0] == 204, "Backend logout failed")
+    check(request(api + "/auth/whoami", headers=disposable_session)[0] == 401, "Logout JWT remained usable")
+    check(request(api + "/auth/renew", data=b"", headers=disposable_session)[0] == 401, "Logout JWT was renewable")
+    check(request(api + "/auth/whoami", headers=user_auth)[0] == 200, "Logout revoked an unrelated session")
+    check(json_request(api + "/admin/user/disabled", headers=admin_auth,
+                       body={"user_id": user_id, "disabled": True})[0] == 204, "Account disable failed")
+    check(request(api + "/auth/whoami", headers=user_auth)[0] == 401, "Disabled account JWT was usable")
+    check(json_request(api + "/auth/login", body=account)[0] == 401, "Disabled account could log in")
+    check(json_request(api + "/admin/user/disabled", headers=admin_auth,
+                       body={"user_id": user_id, "disabled": False})[0] == 204, "Account enable failed")
+    check(request(api + "/auth/whoami", headers=user_auth)[0] == 401, "Re-enable revived a revoked JWT")
+    user_auth = login()
+    check(json_request(api + "/admin/user/revoke-sessions", headers=admin_auth,
+                       body={"user_id": user_id})[0] == 204, "Administrator session revocation failed")
+    check(request(api + "/auth/whoami", headers=user_auth)[0] == 401, "Admin-revoked JWT was usable")
+    user_auth = login()
+    status, machine_key = json_request(api + "/auth/apikeys", headers=user_auth,
+        body={"name": "read-only-e2e", "scopes": ["telemetry:read"], "expires_in": "1h"})
+    check(status == 201, stack.redact(f"Scoped API key creation failed: HTTP {status}; {json.dumps(machine_key)}"))
+    stack.secrets.append(machine_key["key"])
+    status, exchanged = json_request(api + "/auth/apikeys/exchange",
+        headers={"X-API-Key": machine_key["key"]}, body={})
+    check(status == 200, "API key exchange failed")
+    stack.secrets.append(exchanged["token"])
+    machine_auth = {"Authorization": "Bearer " + exchanged["token"]}
+    check(request(api + "/logs?schema=tenant_a" + common, headers=machine_auth)[0] == 200, "Read key could not read its tenant")
+    check(json_request(api + "/logs?schema=tenant_a", headers=machine_auth, body=[])[0] == 403,
+          "Read-only API key inserted telemetry")
+    check(json_request(api + "/auth/apikeys", headers=machine_auth,
+                       body={"name": "escalation", "scopes": ["telemetry:write"]})[0] == 403,
+          "Machine JWT created a broader credential")
+    check(request(api + "/auth/apikeys/" + machine_key["api_key"]["id"], headers=user_auth, method="DELETE")[0] == 204,
+          "API key revocation failed")
+    check(request(api + "/logs?schema=tenant_a" + common, headers=machine_auth)[0] == 401,
+          "Revoked API key's JWT remained usable")
+    status, write_key = json_request(api + "/auth/apikeys", headers=user_auth,
+        body={"name": "write-only-e2e", "scopes": ["telemetry:write"], "expires_in": "1h"})
+    check(status == 201, stack.redact(f"Write-only API key creation failed: HTTP {status}; {json.dumps(write_key)}"))
+    stack.secrets.append(write_key["key"])
+    status, write_token = json_request(api + "/auth/apikeys/exchange", headers={"X-API-Key": write_key["key"]}, body={})
+    check(status == 200, "Write-only API key exchange failed")
+    stack.secrets.append(write_token["token"])
+    write_auth = {"Authorization": "Bearer " + write_token["token"]}
+    check(request(api + "/metrics/gauge/1?schema=tenant_a", headers=write_auth, method="POST", data=b"{}")[0] == 403,
+          "Write-only API key read a metric through POST")
+    check(request(api + "/logs/cursor?schema=tenant_a", headers=write_auth, method="POST", data=b"{}")[0] == 403,
+          "Write-only API key reached a cursor read handler")
+    check(request(api + "/logs?schema=tenant_a", headers=write_auth, method="PUT", data=b"{}")[0] == 403,
+          "Write-only API key used an unsupported mutation method")
+
+    print("Pausing disposable PostgreSQL and forcing a Collector crash to check tenant WAL replay", flush=True)
+    queued = copy.deepcopy(payloads["logs"])
+    records = queued["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
+    records[:] = records[:1]
+    records[0]["body"] = {"stringValue": "queued-crash-" + stack.owner}
+    run("docker", "pause", database)
+    try:
+        for key in tenant_keys:
+            check(json_request(otlp + "/v1/logs", body=queued,
+                               headers={"Authorization": "Bearer " + key})[0] == 200, "WAL enqueue failed during DB outage")
+        run("docker", "kill", "--signal", "KILL", collector)
+    finally:
+        run("docker", "unpause", database)
+    run("docker", "start", collector)
+    run("docker", "restart", mailpit, timeout=45)
+    wait_for(lambda: request(api + "/health")[0] == 200, "Collector WAL replay readiness")
+    for schema in ("tenant_a", "tenant_b"):
+        wait_for(lambda schema=schema: sql(f"SELECT count(*) FROM {schema}.logs;") == "3", "Tenant-bound WAL replay")
+    check(sql("SELECT count(*) FROM otel.logs;") == "2", "WAL replay lost tenant identity")
+    grpc = json.loads(run("go", "run", "-mod=readonly", str(ROOT / "scripts/e2e/ingestion-grpc.go"),
+        cwd=ROOT / "trazr-otel", input=json.dumps({"endpoint": "127.0.0.1:" + str(stack.port(collector, 4317)),
+            "run_id": stack.owner, "tokens": dict(zip(("tenant_a", "tenant_b"), tenant_keys)),
+            "profiles_file": str(ROOT / "pkg/repository/testdata/current-profiles.pb")}), timeout=120))
+    check(grpc["status"] == "grpc_auth_passed", "gRPC authentication driver failed")
+    service = grpc["service_name"]
+    check(re.fullmatch(r"[a-zA-Z0-9_-]+", service), "Unexpected gRPC fixture service name")
+    for schema in ("tenant_a", "tenant_b"):
+        for table in ("logs", "spans", "gauge_metrics", "profiles"):
+            wait_for(lambda schema=schema, table=table: sql(f"SELECT count(*) FROM {schema}.{table} WHERE service_name='{service}';") == "1",
+                     "gRPC credential-bound signal persistence")
+    check(sql(f"SELECT count(*) FROM otel.logs WHERE service_name='{service}';") == "0", "gRPC writes lost tenant isolation")
 
 
 class OwnedStack:
@@ -128,8 +287,18 @@ class OwnedStack:
             args += ["--network-alias", service]
         if env:
             args += ["--env-file", str(env_file(self.directory, service, env))]
-        for port in ports:
-            args += ["--publish", f"127.0.0.1::{port}"]
+        # Docker reassigns automatically published ports on restart. Allocate
+        # explicit random host ports so crash/restart URLs remain stable.
+        reservations = []
+        try:
+            for port in ports:
+                reservation = socket.socket()
+                reservation.bind(("127.0.0.1", 0))
+                reservations.append(reservation)
+                args += ["--publish", f"127.0.0.1:{reservation.getsockname()[1]}:{port}"]
+        finally:
+            for reservation in reservations:
+                reservation.close()
         args += list(options) + [image] + list(command)
         run(*args, timeout=180)
         return name
@@ -401,8 +570,8 @@ def main():
         stack = OwnedStack(directory, artifacts)
         observer = None
         completed = False
-        password, jwt_secret, next_secret, user_key, admin_key, nats_token = [secrets.token_hex(24) for _ in range(6)]
-        stack.secrets.extend([password, jwt_secret, next_secret, user_key, admin_key, nats_token])
+        password, jwt_secret, next_secret, user_key, admin_key, nats_token, ingestion_key, receipt_key, tenant_a_key, tenant_b_key, api_key_pepper = [secrets.token_hex(24) for _ in range(11)]
+        stack.secrets.extend([password, jwt_secret, next_secret, user_key, admin_key, nats_token, ingestion_key, receipt_key, tenant_a_key, tenant_b_key, api_key_pepper])
         try:
             stack.create_network()
             print("Starting disposable project database and real NATS/Python/frontend", flush=True)
@@ -458,15 +627,23 @@ def main():
             config = directory / "collector.yaml"
             pipelines = "".join(f"    {kind}:\n      receivers: [otlp]\n      exporters: [trazr]\n"
                                 for kind in ["logs", "traces", "metrics", "profiles"])
-            config.write_text("extensions:\n  trazr:\n    endpoint: 0.0.0.0:18888\nreceivers:\n"
-                "  otlp:\n    protocols:\n      http:\n        endpoint: 0.0.0.0:4318\nexporters:\n"
-                "  trazr:\n    sending_queue:\n      enabled: true\n      queue_size: 100\n      num_consumers: 1\n"
-                "    retry_on_failure:\n      enabled: false\nservice:\n  extensions: [trazr]\n"
+            config.write_text("extensions:\n  trazr:\n    endpoint: 0.0.0.0:18888\n"
+                "  zzfuse_auth:\n    signing_key: ${env:TRAZR_INGESTION_SIGNING_KEY}\n    credentials:\n"
+                "      default:\n        token: ${env:TRAZR_INGESTION_TOKEN}\n        schema: otel\n        epoch: 1\n"
+                "      tenant_a:\n        token: ${env:ZZFUSE_TEST_TENANT_A_TOKEN}\n        schema: tenant_a\n        epoch: 1\n"
+                "      tenant_b:\n        token: ${env:ZZFUSE_TEST_TENANT_B_TOKEN}\n        schema: tenant_b\n        epoch: 1\n"
+                "  file_storage/ingestion:\n    directory: /var/lib/zzfuse/queue\n    create_directory: true\n    directory_permissions: \"0700\"\n    fsync: true\nreceivers:\n"
+                "  otlp:\n    protocols:\n      grpc:\n        endpoint: 0.0.0.0:4317\n        auth:\n          authenticator: zzfuse_auth\n      http:\n        endpoint: 0.0.0.0:4318\n        auth:\n          authenticator: zzfuse_auth\nexporters:\n"
+                "  trazr:\n    authenticator: zzfuse_auth\n    sending_queue:\n      enabled: true\n      queue_size: 100\n      num_consumers: 1\n      storage: file_storage/ingestion\n"
+                "    retry_on_failure:\n      enabled: true\n      max_elapsed_time: 0s\nservice:\n  extensions: [trazr, zzfuse_auth, file_storage/ingestion]\n"
                 "  telemetry:\n    logs:\n      level: warn\n    metrics:\n      level: none\n  pipelines:\n" + pipelines)
-            collector = stack.container("collector", args.collector_image, ports=[18888, 4318, 8025],
+            collector = stack.container("collector", args.collector_image, ports=[18888, 4317, 4318, 8025],
                 env={"TRAZR_DB_HOST": "database", "TRAZR_DB_PORT": "5432", "TRAZR_DB_USER": "postgres",
                      "TRAZR_DB_PASSWORD": password, "TRAZR_DB_NAME": "zzfuse_stack_e2e", "TRAZR_DB_SSL_MODE": "disable",
                      "TRAZR_JWT_SECRET": jwt_secret, "EVENT_BUS_TYPE": "nats", "NATS_URL": f"nats://{nats_token}@nats:4222",
+                     "TRAZR_API_KEY_PEPPER": api_key_pepper,
+                     "TRAZR_INGESTION_TOKEN": ingestion_key, "TRAZR_INGESTION_SIGNING_KEY": receipt_key,
+                     "ZZFUSE_TEST_TENANT_A_TOKEN": tenant_a_key, "ZZFUSE_TEST_TENANT_B_TOKEN": tenant_b_key,
                      "EMBEDDING_API_KEY": user_key, "TRAZR_SMTP_HOST": "127.0.0.1", "TRAZR_SMTP_PORT": "1025",
                      "TRAZR_SMTP_FROM": "noreply@example.test", "TRAZR_SMTP_TLS_MODE": "plain",
                      "TRAZR_PASSWORD_RESET_URL": frontend_url + "/reset-password"},
@@ -475,7 +652,7 @@ def main():
                 command=["--feature-gates=+service.profilesSupport", "--config", "/etc/otelcol/e2e.yaml"])
             api = f"http://127.0.0.1:{stack.port(collector, 18888)}/api/v1"
             otlp = f"http://127.0.0.1:{stack.port(collector, 4318)}"
-            stack.container("mailpit", args.mailpit_image, network="container:" + collector,
+            mailpit = stack.container("mailpit", args.mailpit_image, network="container:" + collector,
                             env={"MP_SMTP_BIND_ADDR": "127.0.0.1:1025", "MP_UI_BIND_ADDR": "0.0.0.0:8025"})
             mailbox = f"http://127.0.0.1:{stack.port(collector, 8025)}"
             wait_for(lambda: request(mailbox + "/api/v1/messages")[0] == 200, "Local SMTP capture")
@@ -493,13 +670,17 @@ def main():
 
             print("Ingesting real logs/traces/all metric types/profiles through OTLP", flush=True)
             payloads, texts, trace_id, span_id, service_name = telemetry_fixture(stack.owner)
+            ingestion_auth = {"Authorization": "Bearer " + ingestion_key}
             for kind, payload in payloads.items():
-                status, response = json_request(otlp + "/v1/" + kind, body=payload)
+                check(request(otlp + "/v1/" + kind, data=json.dumps(payload).encode(),
+                              headers={"Content-Type": "application/json"})[0] == 401,
+                      f"OTLP {kind} accepted missing credentials")
+                status, response = json_request(otlp + "/v1/" + kind, body=payload, headers=ingestion_auth)
                 check(status == 200 and not response.get("partialSuccess"), f"OTLP {kind} ingestion failed: HTTP {status}")
             fixture_dir = ROOT / "pkg/repository/testdata"
             expected_profiles = normalized_profiles(json.loads((fixture_dir / "current-profiles.json").read_text()))
             status, raw = request(otlp + "/v1development/profiles", data=(fixture_dir / "current-profiles.pb").read_bytes(),
-                                 headers={"Content-Type": "application/x-protobuf", "OTLP-Profiles-Development-Version": "1"})
+                                 headers={**ingestion_auth, "Content-Type": "application/x-protobuf", "OTLP-Profiles-Development-Version": "1"})
             check(status == 200, "OTLP profiles ingestion failed")
             wait_for(lambda: sql("SELECT count(*) FROM otel.logs;") == "2", "Stored logs")
             wait_for(lambda: sql("SELECT count(*) FROM otel.spans;") == "1", "Stored spans")
@@ -589,10 +770,17 @@ def main():
             artifacts.joinpath("worker-driver.log").write_text(stack.redact(driver))
             check("ZZFUSE_WORKER_E2E_PASS" in driver, "Worker driver did not confirm success")
 
+            print("Checking tenant grants, sessions, live streams and crash recovery", flush=True)
+            tenant_security_checks(stack, api, otlp, sql, collector, database, mailpit, auth, payloads,
+                (fixture_dir / "current-profiles.pb").read_bytes(), (tenant_a_key, tenant_b_key), browser_env)
+
             print("Checking real local SMTP reset and browser password change", flush=True)
             current_password = user_password
             received_message_ids = set()
             for iteration, signed_in in enumerate((False, True), start=1):
+                status, prior_session = json_request(api + "/auth/login", body={"username": email, "password": current_password})
+                check(status == 200, "Pre-reset session login failed")
+                stack.secrets.append(prior_session["token"])
                 status, known = json_request(frontend_url + "/api/reset-password", body={"email": email})
                 status_missing, missing = json_request(frontend_url + "/api/reset-password", body={"email": "missing-" + email})
                 check(status == status_missing == 200 and known == missing and
@@ -627,13 +815,22 @@ def main():
                       "Old password remained valid")
                 check(json_request(api + "/auth/login", body={"username": email, "password": new_password})[0] == 200,
                       "New password was not accepted")
+                check(request(api + "/auth/whoami", headers={"Authorization": "Bearer " + prior_session["token"]})[0] == 401,
+                      "Password reset left a previously-issued backend JWT usable")
                 current_password = new_password
             check(len(json_request(mailbox + "/api/v1/messages")[1].get("messages", [])) == 2,
                   "Unknown account unexpectedly received reset email")
+            logged_out = browser_test(browser_env, {"mode": "logout", "url": frontend_url, "email": email,
+                "password": current_password, "screenshot": str(artifacts / "frontend-logout.png")})
+            stack.secrets.append(logged_out["jwt"])
+            check(request(api + "/auth/whoami", headers={"Authorization": "Bearer " + logged_out["jwt"]})[0] == 401,
+                  "Browser logout did not revoke its backend session")
             summary = {"database_extensions": versions.splitlines(), "model": MODEL, "embedding_dimension": len(vector),
                        "logs": 2, "spans": 1, "metric_types": 5, "profiles": len(expected_profiles),
                        "nats_subjects": sorted(required_subjects), "browser_auth": "passed", "smtp_reset": "passed",
                        "worker_inference": "passed"}
+            summary.update(tenant_isolation="passed", session_revocation="passed",
+                           websocket_revocation="passed", tenant_wal_crash_recovery="passed")
             artifacts.joinpath("result.json").write_text(json.dumps(summary, indent=2) + "\n")
             completed = True
         except subprocess.CalledProcessError as error:

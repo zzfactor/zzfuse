@@ -34,6 +34,24 @@ export const authOptions: NextAuthOptions = {
         }),
     ],
     session: { strategy: "jwt" },
+    events: {
+        async signOut(message) {
+            if (!("token" in message) || typeof message.token?.jwt !== "string") return;
+            try {
+                const response = await fetch(backendURL("/api/v1/auth/logout"), {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${message.token.jwt}` },
+                    signal: AbortSignal.timeout(5_000),
+                    cache: "no-store",
+                });
+                if (!response.ok && response.status !== 401) {
+                    console.error("Backend session revocation failed", response.status);
+                }
+            } catch {
+                console.error("Backend session revocation was unavailable");
+            }
+        },
+    },
     callbacks: {
         async jwt({ token, user }) {
             if (user?.token) {

@@ -600,7 +600,7 @@ func (s *metricWriterService) InsertExponentialHistogramMetrics(ctx context.Cont
 
 	// Determine target schema using schema routing if schema is not specified
 	targetSchema := schema
-	if schema != "" && len(entries) > 0 && s.schemaRouter != nil {
+	if schema == "" && len(entries) > 0 && s.schemaRouter != nil {
 		// Use the first entry to determine schema routing
 		firstEntry := entries[0]
 		serviceName := firstEntry.ServiceName

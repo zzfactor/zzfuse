@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
+	"database/sql"
 	auth "github.com/medxops/trazr-otel/pkg/auth"
 	"go.uber.org/zap"
-    "database/sql"
 )
 
 func NewListUsersHandler(db *sql.DB) http.HandlerFunc {
@@ -26,14 +26,22 @@ func NewListUsersHandler(db *sql.DB) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, err.Error(), zap.NewNop())
 			return
 		}
-		var result []map[string]interface{}
+		actorID, err := auth.GetUserID(r.Context())
+		if err != nil {
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized", zap.NewNop())
+			return
+		}
+		result := make([]map[string]any, 0, len(users))
 		for _, u := range users {
-			roles, _ := auth.ListRoles(r.Context(), db, u.ID)
-			result = append(result, map[string]interface{}{
-				"id":       u.ID,
-				"email":    u.Email,
-				"roles":    roles,
-				"metadata": u.Metadata,
+			access, err := auth.GetUserAccess(r.Context(), db, actorID, u.ID)
+			if err != nil {
+				writeAccessError(w, err)
+				return
+			}
+			result = append(result, map[string]any{
+				"id": u.ID, "email": u.Email, "username": u.Username,
+				"roles": access.Roles, "schemas": access.Schemas,
+				"disabled": access.Disabled, "metadata": u.Metadata,
 			})
 		}
 		writeJSON(w, http.StatusOK, result)
@@ -57,9 +65,13 @@ func NewDeleteUserHandler(db *sql.DB) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, "db connection error", zap.NewNop())
 			return
 		}
-		// TODO: Add actorID and permission checks
-		if err := auth.DeleteUser(r.Context(), db, req.UserID); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error(), zap.NewNop())
+		actorID, err := auth.GetUserID(r.Context())
+		if err != nil {
+			writeAccessError(w, err)
+			return
+		}
+		if err := auth.DeleteUserAsAdmin(r.Context(), db, actorID, req.UserID); err != nil {
+			writeAccessError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "user deleted"})
@@ -140,8 +152,13 @@ func NewDeleteUserByIDHandler(db *sql.DB) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, "db connection error", zap.NewNop())
 			return
 		}
-		if err := auth.DeleteUser(r.Context(), db, userID); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error(), zap.NewNop())
+		actorID, err := auth.GetUserID(r.Context())
+		if err != nil {
+			writeAccessError(w, err)
+			return
+		}
+		if err := auth.DeleteUserAsAdmin(r.Context(), db, actorID, userID); err != nil {
+			writeAccessError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "user deleted"})
@@ -157,10 +174,10 @@ func NewSetUserRolesHandler(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		var req struct {
-			UserID int64    `json:"user_id"`
-			Roles  []string `json:"roles"`
+			UserID int64     `json:"user_id"`
+			Roles  *[]string `json:"roles"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UserID <= 0 || req.Roles == nil {
 			writeJSONError(w, http.StatusBadRequest, "invalid request body", zap.NewNop())
 			return
 		}
@@ -168,51 +185,20 @@ func NewSetUserRolesHandler(db *sql.DB) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, "db connection error", zap.NewNop())
 			return
 		}
-		// Normalize desired roles
-		desired := map[string]struct{}{}
-		for _, rname := range req.Roles {
-			rname = strings.TrimSpace(rname)
-			if rname != "" {
-				desired[strings.ToLower(rname)] = struct{}{}
-			}
-		}
-		// Fetch current roles
-		currentList, err := auth.ListRoles(r.Context(), db, req.UserID)
+		actorID, err := auth.GetUserID(r.Context())
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to list current roles", zap.NewNop())
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized", zap.NewNop())
 			return
 		}
-		current := map[string]struct{}{}
-		for _, rname := range currentList {
-			current[strings.ToLower(rname)] = struct{}{}
+		if err := auth.SetUserRoles(r.Context(), db, actorID, req.UserID, *req.Roles); err != nil {
+			writeAccessError(w, err)
+			return
 		}
-		// Add missing roles
-		for rname := range desired {
-			if _, ok := current[rname]; !ok {
-				if err := auth.AssignRole(r.Context(), db, req.UserID, rname); err != nil {
-					writeJSONError(w, http.StatusInternalServerError, "failed to assign role: "+rname, zap.NewNop())
-					return
-				}
-			}
-		}
-		// Remove roles not desired
-		for rname := range current {
-			if _, ok := desired[rname]; !ok {
-				if err := auth.RemoveRole(r.Context(), db, req.UserID, rname); err != nil {
-					writeJSONError(w, http.StatusInternalServerError, "failed to remove role: "+rname, zap.NewNop())
-					return
-				}
-			}
-		}
-		// Return updated roles
 		updated, err := auth.ListRoles(r.Context(), db, req.UserID)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "failed to fetch updated roles", zap.NewNop())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"user_id": req.UserID,
-			"roles":   updated,
-		})
+		writeJSON(w, http.StatusOK, map[string]any{"user_id": req.UserID, "roles": updated})
 	}
 }

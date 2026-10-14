@@ -23,6 +23,7 @@ import (
 	"github.com/medxops/trazr-otel/pkg/repository"
 	"github.com/medxops/trazr-otel/trazrexporter/internal"
 	"github.com/medxops/trazr-otel/trazrexporter/internal/metadata"
+	"github.com/medxops/trazr-otel/zzfuseauth"
 )
 
 const postgresqlDriverName = "pgx"
@@ -59,13 +60,18 @@ func createProfilesExporter(ctx context.Context, set exporter.Settings, cfg comp
 	}
 	c.collectorVersion = set.BuildInfo.Version
 	exp := newProfilesExporter(set.Logger, c)
-	return xexporterhelper.NewProfiles(ctx, set, cfg, exp.pushProfileData,
+	wrapped, err := xexporterhelper.NewProfiles(ctx, set, cfg, exp.pushProfileData,
 		exporterhelper.WithStart(exp.start), exporterhelper.WithShutdown(exp.shutdown),
 		exporterhelper.WithTimeout(c.TimeoutSettings), exporterhelper.WithQueue(c.QueueSettings), exporterhelper.WithRetry(c.BackOffConfig))
+	if err != nil {
+		return nil, err
+	}
+	return &authenticatedProfiles{wrapped, &exp.baseExporter}, nil
 }
 
 func createDefaultConfig() component.Config {
 	return &Config{
+		Authenticator:    component.NewID(zzfuseauth.Type),
 		collectorVersion: "unknown",
 		driverName:       postgresqlDriverName,
 
@@ -119,7 +125,7 @@ func createLogsExporter(
 
 	exporter := newLogsExporter(set.Logger, c)
 
-	return exporterhelper.NewLogs(
+	wrapped, err := exporterhelper.NewLogs(
 		ctx,
 		set,
 		cfg,
@@ -130,6 +136,10 @@ func createLogsExporter(
 		exporterhelper.WithQueue(c.QueueSettings),
 		exporterhelper.WithRetry(c.BackOffConfig),
 	)
+	if err != nil {
+		return nil, err
+	}
+	return &authenticatedLogs{wrapped, &exporter.baseExporter}, nil
 }
 
 // createTracesExporter creates a new exporter for traces.
@@ -149,7 +159,7 @@ func createTracesExporter(
 	c.collectorVersion = set.BuildInfo.Version
 	exporter := newTracesExporter(set.Logger, c)
 
-	return exporterhelper.NewTraces(
+	wrapped, err := exporterhelper.NewTraces(
 		ctx,
 		set,
 		cfg,
@@ -160,6 +170,10 @@ func createTracesExporter(
 		exporterhelper.WithQueue(c.QueueSettings),
 		exporterhelper.WithRetry(c.BackOffConfig),
 	)
+	if err != nil {
+		return nil, err
+	}
+	return &authenticatedTraces{wrapped, &exporter.baseExporter}, nil
 }
 
 // createMetricsExporter creates a new exporter for metrics.
@@ -179,7 +193,7 @@ func createMetricsExporter(
 	c.collectorVersion = set.BuildInfo.Version
 	exporter := newMetricsExporter(set.Logger, c)
 
-	return exporterhelper.NewMetrics(
+	wrapped, err := exporterhelper.NewMetrics(
 		ctx,
 		set,
 		cfg,
@@ -190,4 +204,8 @@ func createMetricsExporter(
 		exporterhelper.WithQueue(c.QueueSettings),
 		exporterhelper.WithRetry(c.BackOffConfig),
 	)
+	if err != nil {
+		return nil, err
+	}
+	return &authenticatedMetrics{wrapped, &exporter.baseExporter}, nil
 }

@@ -1,4 +1,16 @@
 extensions:
+  zzfuse_auth:
+    signing_key: ${env:TRAZR_INGESTION_SIGNING_KEY}
+    credentials:
+      default:
+        token: ${env:TRAZR_INGESTION_TOKEN}
+        schema: ${env:TRAZR_INGESTION_SCHEMA:-otel}
+        epoch: ${env:TRAZR_INGESTION_EPOCH:-1}
+  file_storage/ingestion:
+    directory: ${env:TRAZR_QUEUE_DIRECTORY:-/var/lib/zzfuse/queue}
+    create_directory: true
+    directory_permissions: "0700"
+    fsync: true
   trazr: 
     ws_read_timeout: 120s
     #endpoint: "0.0.0.0:18888"  # Change this port as needed
@@ -9,26 +21,27 @@ receivers:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+        auth:
+          authenticator: zzfuse_auth
       http:
         endpoint: 0.0.0.0:4318
-processors:
-  batch:
-    send_batch_size: 1024
-    timeout: 250ms
-    send_batch_max_size: 1024
-  trazr:
-
+        auth:
+          authenticator: zzfuse_auth
+# Context-dropping processors and queue batching are intentionally omitted.
+# Receiver-authenticated tenant identity must survive every request unchanged.
 exporters:
   trazr:
+    authenticator: zzfuse_auth
     sending_queue:
       enabled: true
+      storage: file_storage/ingestion
       queue_size: 10000
       num_consumers: 1
     retry_on_failure:
       enabled: true
       initial_interval: 5s
       max_interval: 30s
-      max_elapsed_time: 300s
+      max_elapsed_time: 0s
  
   file:
     path: ./logs/trazr2.log
@@ -36,25 +49,25 @@ exporters:
     verbosity: detailed
 
 service:
-  extensions: [trazr]
+  extensions: [trazr, zzfuse_auth, file_storage/ingestion]
   #telemetry:
   #  logs:
   #    level: "debug"
   pipelines:
     profiles:
       receivers: [otlp]
-      # Batch and the custom trazr processor do not support profiles.
+      # Profiles share the authenticated tenant and durable queue boundary.
       processors: []
       exporters: [trazr]
     traces:
       receivers: [otlp]
-      processors: [batch]
+      processors: []
       exporters: [trazr]
     metrics:
       receivers: [otlp]
-      processors: [batch]
+      processors: []
       exporters: [trazr]
     logs:
       receivers: [otlp]
-      processors: [batch]
+      processors: []
       exporters: [trazr]

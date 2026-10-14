@@ -378,12 +378,13 @@ func TestProcessAndInsertLogsEmptyInput(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
 	exporter := &logsExporter{baseExporter: baseExporter{logger: logger}}
+	authCtx := authenticatedTestContext(t, &exporter.baseExporter, "otel")
 
 	// Create empty logs
 	ld := plog.NewLogs()
 
 	// Test - should return nil immediately
-	err := exporter.processAndInsertLogs(context.Background(), ld)
+	err := exporter.processAndInsertLogs(authCtx, ld)
 	if err != nil {
 		t.Errorf("Expected nil error for empty logs, got %v", err)
 	}
@@ -394,6 +395,7 @@ func TestProcessAndInsertLogsContextCancellation(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
 	exporter := &logsExporter{baseExporter: baseExporter{logger: logger}}
+	authCtx := authenticatedTestContext(t, &exporter.baseExporter, "otel")
 
 	// Create test logs
 	ld := plog.NewLogs()
@@ -403,7 +405,7 @@ func TestProcessAndInsertLogsContextCancellation(t *testing.T) {
 	logRecord.SetSeverityNumber(plog.SeverityNumberInfo)
 
 	// Create cancelled context
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(authCtx)
 	cancel() // Cancel immediately
 
 	// Test - should return context error

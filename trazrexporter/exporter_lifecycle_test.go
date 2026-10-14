@@ -8,6 +8,8 @@ import (
 	"github.com/medxops/trazr-otel/pkg/repository"
 	"github.com/medxops/trazr-otel/pkg/repository/mocks"
 	"github.com/medxops/trazr-otel/trazrexporter/testutil"
+	"github.com/medxops/trazr-otel/zzfuseauth"
+	"go.opentelemetry.io/collector/component"
 )
 
 func TestExportersBorrowSharedServiceResourceManager(t *testing.T) {
@@ -31,9 +33,10 @@ func TestExportersBorrowSharedServiceResourceManager(t *testing.T) {
 		},
 	}
 	host := testutil.NewMockHost(provider)
+	host.GetExtensions()[component.NewID(zzfuseauth.Type)] = testAuthenticator(t, "otel")
 	for _, signal := range []string{"logs", "spans", "metrics", "profiles"} {
 		ready = false
-		exporter := &baseExporter{signalType: signal}
+		exporter := &baseExporter{signalType: signal, cfg: createDefaultConfig().(*Config)}
 		if err := exporter.initializeSRM(context.Background(), host); err != nil {
 			t.Fatal(err)
 		}
@@ -80,8 +83,10 @@ func TestExporterInitializationFailures(t *testing.T) {
 				ctx, cancel = context.WithCancel(ctx)
 				cancel()
 			}
-			exporter := &baseExporter{}
-			err := exporter.initializeSRM(ctx, testutil.NewMockHost(serviceProvider))
+			exporter := &baseExporter{cfg: createDefaultConfig().(*Config)}
+			host := testutil.NewMockHost(serviceProvider)
+			host.GetExtensions()[component.NewID(zzfuseauth.Type)] = testAuthenticator(t, "otel")
+			err := exporter.initializeSRM(ctx, host)
 			if err == nil || exporter.srm != nil {
 				t.Fatal("initialization accepted unavailable services")
 			}

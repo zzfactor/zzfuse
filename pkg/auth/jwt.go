@@ -4,7 +4,7 @@
 //   - TRAZR_JWT_SECRET: primary HS256 signing/validation secret (required; returns error if missing).
 //   - TRAZR_JWT_SECRETS: optional rotation map in kid=secret[,kid=secret] format.
 //   - TRAZR_JWT_KID: when set, tokens will be signed with the secret mapped by this kid in TRAZR_JWT_SECRETS.
-//                     If set but missing from TRAZR_JWT_SECRETS, issuance fails.
+//     If set but missing from TRAZR_JWT_SECRETS, issuance fails.
 //   - TRAZR_JWT_ISSUER: optional iss claim to set and enforce during validation when provided.
 //   - TRAZR_JWT_AUDIENCE: optional aud claim to set and enforce during validation when provided.
 //
@@ -58,13 +58,15 @@ func getJWTConfig() (secret []byte, issuer string, audience string, kid string, 
 // Claims defines the JWT claims structure with full user context.
 // RegisteredClaims includes standard fields: Issuer, Subject, Audience, ExpiresAt, NotBefore, IssuedAt, ID (jti).
 type Claims struct {
-	UserID   int64  `json:"user_id"`
-	Email    string `json:"email"`
-	Username string `json:"username,omitempty"`
+	AuthVersion int64  `json:"auth_version,omitempty"`
+	APIKeyID    string `json:"api_key_id,omitempty"`
+	UserID      int64  `json:"user_id"`
+	Email       string `json:"email"`
+	Username    string `json:"username,omitempty"`
 	// Multi-tenancy and user context
-	TenantID  string   `json:"tenant_id,omitempty"`
-	Schemas   []string `json:"schemas,omitempty"`
-	Roles     []string `json:"roles,omitempty"`
+	TenantID string   `json:"tenant_id,omitempty"`
+	Schemas  []string `json:"schemas,omitempty"`
+	Roles    []string `json:"roles,omitempty"`
 	// Optional resource scoping for machine tokens
 	OrgID     *int64   `json:"org_id,omitempty"`
 	ProjectID *int64   `json:"project_id,omitempty"`
@@ -98,9 +100,9 @@ func GenerateJWTWith(userID int64, email string, expiry time.Duration, orgID, pr
 		return "", err
 	}
 	claims := Claims{
-		UserID:   userID,
-		Email:    email,
-		Username: "",
+		UserID:    userID,
+		Email:     email,
+		Username:  "",
 		OrgID:     orgID,
 		ProjectID: projectID,
 		Scopes:    scopes,
@@ -214,13 +216,18 @@ func ValidateJWT(tokenString string) (*Claims, error) {
 	if err != nil {
 		return nil, fmt.Errorf("jwt config: %w", err)
 	}
-	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuedAt())
 	claims := &Claims{}
 	token, err := parser.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		if kidVal, ok := token.Header["kid"].(string); ok {
+		if rawKid, present := token.Header["kid"]; present {
+			kidVal, ok := rawKid.(string)
+			if !ok || kidVal == "" {
+				return nil, errors.New("invalid jwt signing key")
+			}
 			if key, found := secrets[kidVal]; found {
 				return key, nil
 			}
+			return nil, errors.New("unknown jwt signing key")
 		}
 		return fallback, nil
 	})
@@ -275,7 +282,7 @@ func HasRoleInClaims(claims *Claims, targetRole string) bool {
 	if claims == nil {
 		return false
 	}
-	
+
 	for _, role := range claims.Roles {
 		if role == targetRole {
 			return true

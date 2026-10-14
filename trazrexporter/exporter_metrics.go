@@ -74,6 +74,11 @@ func generateMetricTablesConfigMapper(cfg *Config) internal.MetricTablesConfigMa
 //
 // This approach maximizes performance through early filtering and supports routing to multiple schemas.
 func (e *metricsExporter) pushMetricsData(ctx context.Context, md pmetric.Metrics) error {
+	tenantSchema, err := e.tenantSchema(ctx)
+	if err != nil {
+		return err
+	}
+
 	if span := trace.SpanFromContext(ctx); span != nil && span.IsRecording() {
 		span.AddEvent("pushMetricsData called", trace.WithAttributes(
 			attribute.Int("num_resource_metrics", md.ResourceMetrics().Len()),
@@ -92,17 +97,7 @@ func (e *metricsExporter) pushMetricsData(ctx context.Context, md pmetric.Metric
 		resAttr := metrics.Resource().Attributes()
 
 		serviceName := internal.GetServiceName(resAttr) // Original service name
-		serviceNamespace := internal.GetServiceNamespace(resAttr)
-		schema, found, err := e.srm.GetSchema(serviceName, serviceNamespace)
-		if err != nil {
-			return fmt.Errorf("failed to get schema for service %s: %w", serviceName, err)
-		}
-		if !found {
-			e.logger.Debug("Skipping ResourceMetrics - schema not found",
-				zap.String("service_name", serviceName),
-				zap.String("service_namespace", serviceNamespace))
-			continue // Skip entire ResourceMetrics if schema not found
-		}
+		schema := tenantSchema
 
 		// Marshal resource attributes once per ResourceMetrics (immutable)
 		resourceAttrsJSON := internal.SafeJSON(internal.AttributesToMap(resAttr))
@@ -135,8 +130,8 @@ func (e *metricsExporter) pushMetricsData(ctx context.Context, md pmetric.Metric
 						flags := int32(dp.Flags())
 						exemplars := internal.ConvertExemplars(dp.Exemplars())
 						entry := repository.GaugeMetricEntry{
-							TimestampNS:           timestamp.Time.UnixNano(),
-							Timestamp:             timestamp.Time,
+							TimestampNS: timestamp.Time.UnixNano(),
+							Timestamp:   timestamp.Time,
 							// Service entity fields (OTel v1.39.0)
 							ServiceName:           serviceName, // Original service name
 							ServiceNamespace:      internal.GetServiceNamespacePtr(resAttr),
@@ -175,8 +170,8 @@ func (e *metricsExporter) pushMetricsData(ctx context.Context, md pmetric.Metric
 						isMonotonic := r.Sum().IsMonotonic()
 						startTime := dp.StartTimestamp().AsTime()
 						entry := repository.SumMetricEntry{
-							TimestampNS:            timestamp.Time.UnixNano(),
-							Timestamp:              timestamp.Time,
+							TimestampNS: timestamp.Time.UnixNano(),
+							Timestamp:   timestamp.Time,
 							// Service entity fields (OTel v1.39.0)
 							ServiceName:            serviceName, // Original service name
 							ServiceNamespace:       internal.GetServiceNamespacePtr(resAttr),
@@ -229,8 +224,8 @@ func (e *metricsExporter) pushMetricsData(ctx context.Context, md pmetric.Metric
 							maxPtr = internal.PtrFromFloat64(dp.Max())
 						}
 						entry := repository.HistogramMetricEntry{
-							TimestampNS:            timestamp.Time.UnixNano(),
-							Timestamp:              timestamp.Time,
+							TimestampNS: timestamp.Time.UnixNano(),
+							Timestamp:   timestamp.Time,
 							// Service entity fields (OTel v1.39.0)
 							ServiceName:            serviceName, // Original service name
 							ServiceNamespace:       internal.GetServiceNamespacePtr(resAttr),
@@ -276,8 +271,8 @@ func (e *metricsExporter) pushMetricsData(ctx context.Context, md pmetric.Metric
 						posBucketCounts, _ := json.Marshal(dp.Positive().BucketCounts().AsRaw())
 						negBucketCounts, _ := json.Marshal(dp.Negative().BucketCounts().AsRaw())
 						entry := repository.ExponentialHistogramMetricEntry{
-							TimestampNS:            timestamp.Time.UnixNano(),
-							Timestamp:              timestamp.Time,
+							TimestampNS: timestamp.Time.UnixNano(),
+							Timestamp:   timestamp.Time,
 							// Service entity fields (OTel v1.39.0)
 							ServiceName:            serviceName, // Original service name
 							ServiceNamespace:       internal.GetServiceNamespacePtr(resAttr),
@@ -326,8 +321,8 @@ func (e *metricsExporter) pushMetricsData(ctx context.Context, md pmetric.Metric
 						startTime := dp.StartTimestamp().AsTime()
 						quantilesJSON := internal.ConvertValueAtQuantileToJSONB(dp.QuantileValues())
 						entry := repository.SummaryMetricEntry{
-							TimestampNS:           timestamp.Time.UnixNano(),
-							Timestamp:             timestamp.Time,
+							TimestampNS: timestamp.Time.UnixNano(),
+							Timestamp:   timestamp.Time,
 							// Service entity fields (OTel v1.39.0)
 							ServiceName:           serviceName, // Original service name
 							ServiceNamespace:      internal.GetServiceNamespacePtr(resAttr),

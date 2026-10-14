@@ -83,6 +83,11 @@ func (e *logsExporter) pushLogsData(ctx context.Context, ld plog.Logs) error {
 // processAndInsertLogs processes logs and inserts them into the database.
 // This function focuses solely on log processing and insertion.
 func (e *logsExporter) processAndInsertLogs(ctx context.Context, ld plog.Logs) error {
+	tenantSchema, err := e.tenantSchema(ctx)
+	if err != nil {
+		return err
+	}
+
 	// Early exit for empty logs
 	if ld.ResourceLogs().Len() == 0 {
 		return nil
@@ -107,17 +112,7 @@ func (e *logsExporter) processAndInsertLogs(ctx context.Context, ld plog.Logs) e
 			zap.String("schema_url", logs.SchemaUrl()))
 
 		serviceName := internal.GetServiceName(res.Attributes())
-		serviceNamespace := internal.GetServiceNamespace(res.Attributes())
-		schema, found, err := e.srm.GetSchema(serviceName, serviceNamespace)
-		if err != nil {
-			return fmt.Errorf("failed to get schema for service %s: %w", serviceName, err)
-		}
-		if !found {
-			e.logger.Debug("Skipping ResourceLogs - schema not found",
-				zap.String("service_name", serviceName),
-				zap.String("service_namespace", serviceNamespace))
-			continue // Skip entire ResourceLogs if schema not found
-		}
+		schema := tenantSchema
 
 		// Marshal resource attributes once per ResourceLogs (immutable)
 		resourceAttrsJSON, err := json.Marshal(internal.AttributesToMap(res.Attributes()))
@@ -170,14 +165,14 @@ func (e *logsExporter) processAndInsertLogs(ctx context.Context, ld plog.Logs) e
 				timestamp := internal.NormalizeTimestamp(lr.Timestamp().AsTime())
 				observedTimestamp := internal.NormalizeTimestamp(lr.ObservedTimestamp().AsTime())
 				entry := repository.LogEntry{
-					TimestampNS:           timestamp.Time.UnixNano(),
-					Timestamp:             timestamp.Time,
-					ObservedTimestamp:     &observedTimestamp.Time,
-					TraceID:               internal.PtrFromString(traceIDHex),
-					SpanID:                internal.PtrFromString(spanIDHex),
-					Flags:                 internal.PtrFromInt32(int32(lr.Flags())),
-					SeverityText:          internal.PtrFromString(lr.SeverityText()),
-					SeverityNumber:        internal.PtrFromInt32(int32(lr.SeverityNumber())),
+					TimestampNS:       timestamp.Time.UnixNano(),
+					Timestamp:         timestamp.Time,
+					ObservedTimestamp: &observedTimestamp.Time,
+					TraceID:           internal.PtrFromString(traceIDHex),
+					SpanID:            internal.PtrFromString(spanIDHex),
+					Flags:             internal.PtrFromInt32(int32(lr.Flags())),
+					SeverityText:      internal.PtrFromString(lr.SeverityText()),
+					SeverityNumber:    internal.PtrFromInt32(int32(lr.SeverityNumber())),
 					// Service entity fields (OTel v1.39.0)
 					ServiceName:           serviceName,
 					ServiceNamespace:      internal.GetServiceNamespacePtr(res.Attributes()),

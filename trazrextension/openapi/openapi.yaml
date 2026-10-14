@@ -14,7 +14,6 @@ servers:
         default: dev
 security:
   - bearerAuth: []
-  - ApiKeyAuth: []
 tags:
   - name: Configuration
     description: Endpoints for managing user, organization, and project configurations.
@@ -35,6 +34,22 @@ tags:
   - name: Profiles
     description: Profile retrieval and management endpoints.
 paths:
+  /api/v1/auth/whoami:
+    $ref: ./paths/auth_sessions.yaml#/paths/~1api~1v1~1auth~1whoami
+  /api/v1/auth/renew:
+    $ref: ./paths/auth_sessions.yaml#/paths/~1api~1v1~1auth~1renew
+  /api/v1/auth/logout:
+    $ref: ./paths/auth_sessions.yaml#/paths/~1api~1v1~1auth~1logout
+  /api/v1/admin/user/access:
+    $ref: ./paths/auth_sessions.yaml#/paths/~1api~1v1~1admin~1user~1access
+  /api/v1/admin/user/schemas:
+    $ref: ./paths/auth_sessions.yaml#/paths/~1api~1v1~1admin~1user~1schemas
+  /api/v1/admin/user/roles:
+    $ref: ./paths/auth_sessions.yaml#/paths/~1api~1v1~1admin~1user~1roles
+  /api/v1/admin/user/disabled:
+    $ref: ./paths/auth_sessions.yaml#/paths/~1api~1v1~1admin~1user~1disabled
+  /api/v1/admin/user/revoke-sessions:
+    $ref: ./paths/auth_sessions.yaml#/paths/~1api~1v1~1admin~1user~1revoke-sessions
   /api/v1/auth/reset-password:
     $ref: ./paths/auth_password_reset.yaml#/paths/~1api~1v1~1auth~1reset-password
   /api/v1/auth/request-password-reset:

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/medxops/trazr-otel/zzfuseauth"
+	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
@@ -36,6 +38,7 @@ import (
 //   - EnableVectorSearch enables semantic search capabilities
 //   - VectorDimensions controls embedding vector size
 type Config struct {
+	Authenticator component.ID `mapstructure:"authenticator"`
 	// collectorVersion is the build version of the collector. This is overridden when an exporter is initialized.
 	collectorVersion string
 	driverName       string // for testing
@@ -107,6 +110,12 @@ type MetricTablesConfig struct {
 // Returns a combined error containing all validation failures, or nil if valid.
 // The returned error can be checked using errors.Is() for specific error types.
 func (cfg *Config) Validate() error {
+	if cfg.Authenticator.Type() != zzfuseauth.Type {
+		return fmt.Errorf("authenticator must identify a configured zzfuse_auth extension")
+	}
+	if cfg.QueueSettings.HasValue() && cfg.QueueSettings.Get().Batch.HasValue() {
+		return fmt.Errorf("sending_queue batching is unsupported: tenant authentication context must not merge")
+	}
 	if cfg.MaxConnections < 0 {
 		return fmt.Errorf("max_connections must be >= 0, got %d", cfg.MaxConnections)
 	}

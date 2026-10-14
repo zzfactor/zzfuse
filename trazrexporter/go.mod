@@ -17,10 +17,12 @@ require (
 	github.com/medxops/trazr-otel/pkg/config v0.0.0-00010101000000-000000000000
 	github.com/medxops/trazr-otel/pkg/repository v0.0.0-00010101000000-000000000000
 	github.com/medxops/trazr-otel/pkg/util v0.0.0
+	github.com/medxops/trazr-otel/zzfuseauth v0.1.0
 	go.opentelemetry.io/collector/component v1.69.0
 	go.opentelemetry.io/collector/config/configoptional v1.69.0
 	go.opentelemetry.io/collector/config/configretry v1.69.0
 	go.opentelemetry.io/collector/confmap v1.69.0
+	go.opentelemetry.io/collector/consumer/consumererror v0.163.0
 	go.opentelemetry.io/collector/exporter v1.69.0
 	go.opentelemetry.io/collector/exporter/exporterhelper v0.163.0
 	go.opentelemetry.io/collector/exporter/exporterhelper/xexporterhelper v0.163.0
@@ -105,10 +107,11 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/collector/client v1.69.0 // indirect
+	go.opentelemetry.io/collector/config/configopaque v1.69.0 // indirect
 	go.opentelemetry.io/collector/consumer v1.69.0 // indirect
-	go.opentelemetry.io/collector/consumer/consumererror v0.163.0 // indirect
 	go.opentelemetry.io/collector/consumer/consumererror/xconsumererror v0.163.0 // indirect
 	go.opentelemetry.io/collector/consumer/xconsumer v0.163.0 // indirect
+	go.opentelemetry.io/collector/extension/extensionauth v1.69.0 // indirect
 	go.opentelemetry.io/collector/extension/xextension v0.163.0 // indirect
 	go.opentelemetry.io/collector/featuregate v1.69.0 // indirect
 	go.opentelemetry.io/collector/internal/componentalias v0.163.0 // indirect
@@ -130,3 +133,5 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
+
+replace github.com/medxops/trazr-otel/zzfuseauth => ../zzfuseauth

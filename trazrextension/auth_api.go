@@ -92,13 +92,6 @@ func NewLoginHandler(db *sql.DB) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, "failed to fetch user roles", zap.NewNop())
 			return
 		}
-		if len(roles) == 0 {
-			if user.ID == 1 {
-				roles = []string{"admin", "user"}
-			} else {
-				roles = []string{"user"}
-			}
-		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"token": token,
 			"user":  user,
@@ -194,146 +187,61 @@ func NewResetPasswordHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// NewWhoAmIHandler returns the authenticated user's info and roles based on JWT claims.
+// NewWhoAmIHandler returns the current database-backed identity and access grants.
 func NewWhoAmIHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed", zap.NewNop())
 			return
 		}
-		if db == nil {
-			writeJSONError(w, http.StatusInternalServerError, "db connection error", zap.NewNop())
-			return
-		}
-		claims, err := ValidateJWTFromRequest(r)
+		claims, err := auth.ValidateSessionJWTFromRequest(r, db)
 		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "unauthorized: "+err.Error(), zap.NewNop())
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized", zap.NewNop())
 			return
 		}
-		// Extract identifiers
-		var email, username string
-		if v, ok := claims["email"].(string); ok {
-			email = v
-		}
-		if v, ok := claims["username"].(string); ok {
-			username = v
-		}
-		var uid int64
-		switch v := claims["user_id"].(type) {
-		case float64:
-			uid = int64(v)
-		case int64:
-			uid = v
-		}
-		var user *auth.User
-		// Prefer user_id, then username, then email
-		if uid != 0 {
-			user, err = auth.GetUserByID(r.Context(), db, uid)
-		} else if username != "" {
-			user, err = auth.GetUserByIdentifier(r.Context(), db, username)
-		} else if email != "" {
-			user, err = auth.GetUserByEmail(r.Context(), db, email)
-		}
+		user, err := auth.GetUserByID(r.Context(), db, claims.UserID)
 		if err != nil || user == nil {
-			// If not resolvable, return claims-only for backward compatibility
-			writeJSON(w, http.StatusOK, map[string]any{"claims": claims})
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized", zap.NewNop())
 			return
-		}
-		roles, err := auth.ListRoles(r.Context(), db, user.ID)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to fetch user roles", zap.NewNop())
-			return
-		}
-		if len(roles) == 0 {
-			if user.ID == 1 {
-				roles = []string{"admin", "user"}
-			} else {
-				roles = []string{"user"}
-			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"user":  user,
-			"roles": roles,
+			"user": user, "roles": claims.Roles, "schemas": claims.Schemas,
 		})
 	}
 }
 
-// NewRenewTokenHandler exchanges a valid token for a new token with refreshed expiry.
+// Renewal checks account state and preserves the restrictions of machine tokens.
 func NewRenewTokenHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed", zap.NewNop())
 			return
 		}
-		if db == nil {
-			writeJSONError(w, http.StatusInternalServerError, "db connection error", zap.NewNop())
-			return
-		}
-		claims, err := ValidateJWTFromRequest(r)
+		existing, err := auth.ExtractTokenFromRequest(r)
 		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "unauthorized: "+err.Error(), zap.NewNop())
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized", zap.NewNop())
 			return
 		}
-		// Extract user ID, email, and username from claims
-		var email string
-		var username string
-		if v, ok := claims["email"].(string); ok {
-			email = v
-		}
-		if v, ok := claims["username"].(string); ok {
-			username = v
-		}
-		// Backward compatibility: if no email, try subject (sub)
-		if email == "" {
-			if v, ok := claims["sub"].(string); ok {
-				email = v
-			}
-		}
-		var uid int64
-		switch v := claims["user_id"].(type) {
-		case float64:
-			uid = int64(v)
-		case int64:
-			uid = v
-		}
-		var u *auth.User
-		if (uid == 0 || username == "") && email != "" {
-			if got, err := auth.GetUserByEmail(r.Context(), db, email); err == nil && got != nil {
-				u = got
-				uid = got.ID
-				if username == "" {
-					username = got.Username
-				}
-			}
-		}
-		// If still missing username, try lookup by identifier if we have one
-		if username == "" && email != "" {
-			if got, err := auth.GetUserByIdentifier(r.Context(), db, email); err == nil && got != nil {
-				u = got
-				username = got.Username
-				if uid == 0 {
-					uid = got.ID
-				}
-			}
-		}
-		// If missing email but we have user (from uid), fetch
-		if email == "" && u == nil && uid != 0 {
-			if got, err := auth.GetUserByIdentifier(r.Context(), db, username); err == nil && got != nil {
-				u = got
-				email = got.Email
-			}
-		}
-		// If still missing identifiers, cannot proceed
-		if uid == 0 || username == "" {
-			writeJSONError(w, http.StatusBadRequest, "invalid token claims: missing user identifiers", zap.NewNop())
-			return
-		}
-		// Issue new token (24h) including username convenience claim
-		token, err := auth.GenerateJWTWithUsername(uid, email, username, 24*time.Hour)
+		token, err := auth.RenewSessionJWT(r.Context(), db, existing, 24*time.Hour)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to generate token", zap.NewNop())
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized", zap.NewNop())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"token": token})
+	}
+}
+
+func NewLogoutHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed", zap.NewNop())
+			return
+		}
+		token, err := auth.ExtractTokenFromRequest(r)
+		if err != nil || auth.RevokeSessionJWT(r.Context(), db, token) != nil {
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized", zap.NewNop())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

@@ -34,7 +34,7 @@ func ValidateJWTFromRequest(r *http.Request) (*Claims, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ValidateJWT(token)
+	return ValidateSessionJWT(r.Context(), SessionDatabaseFromContext(r.Context()), token)
 }
 
 // ScopedJWTAuthMiddleware validates JWT and enforces optional org/project scoping.
@@ -46,7 +46,7 @@ func ScopedJWTAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: " + err.Error()})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 			return
 		}
 		// Parse requested scoping
@@ -114,16 +114,16 @@ func UserContextMiddleware(next http.Handler) http.Handler {
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: " + err.Error()})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 			return
 		}
-		
+
 		// Convert claims to user context
 		userCtx := ClaimsToUserContext(claims)
-		
+
 		// Add user context to request context
 		ctx := WithUserContext(r.Context(), userCtx)
-		
+
 		// Continue with request
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -141,7 +141,7 @@ func RequireSchemaAccessMiddleware(getSchemaFromRequest func(*http.Request) stri
 				next.ServeHTTP(w, r)
 				return
 			}
-			
+
 			// Check schema access
 			if !UserHasSchemaAccess(r.Context(), schema) {
 				w.Header().Set("Content-Type", "application/json")
@@ -149,7 +149,7 @@ func RequireSchemaAccessMiddleware(getSchemaFromRequest func(*http.Request) stri
 				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: schema access denied"})
 				return
 			}
-			
+
 			next.ServeHTTP(w, r)
 		})
 	}

@@ -157,48 +157,34 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 
 // JWTAuthMiddleware wraps an http.HandlerFunc to require a valid JWT.
 func JWTAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		_, err := ValidateJWTFromRequest(r)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: " + err.Error()})
-			return
-		}
-		next(w, r)
-	}
+	return auth.UserContextMiddleware(next).ServeHTTP
 }
 
 // AdminOnlyMiddleware validates JWT and enforces admin role. Returns 401 for invalid/missing token,
 // and 403 Forbidden for valid non-admin tokens.
 func AdminOnlyMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		claims, err := ValidateJWTFromRequest(r)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: " + err.Error()})
-			return
-		}
-		if !IsAdmin(claims) {
+	return auth.UserContextMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !auth.UserHasRole(r.Context(), "admin") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: admin required"})
 			return
 		}
 		next(w, r)
-	}
+	})).ServeHTTP
 }
 
 // wsAuthHandlerWrapper authenticates JWT for WebSocket endpoints without org/project enforcement
 func (h *TrazrExtension) wsAuthHandlerWrapper(handler func(w http.ResponseWriter, r *http.Request, conn *websocket.Conn)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, err := ValidateJWTFromRequest(r); err != nil {
+		claims, err := auth.ValidateJWTFromRequest(r)
+		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 			return
 		}
+		r = r.WithContext(auth.WithUserContext(r.Context(), auth.ClaimsToUserContext(claims)))
 		conn, err := h.wsUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			http.Error(w, "websocket upgrade failed: "+err.Error(), http.StatusBadRequest)
@@ -243,9 +229,13 @@ func (h *TrazrExtension) wsAuthHandlerWrapper(handler func(w http.ResponseWriter
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 		go func() {
-			<-h.shutdownCtx.Done()
-			cancel()
+			select {
+			case <-h.shutdownCtx.Done():
+				cancel()
+			case <-ctx.Done():
+			}
 		}()
+		h.guardWebSocketSession(ctx, cancel, r, conn)
 		// Note: Do not start an additional read-drain here. Handlers wrapped by
 		// wsScopedAuthHandlerWrapper (e.g., StreamLogs) maintain their own
 		// reader goroutines for control/data frames. Running a second reader causes
@@ -280,6 +270,12 @@ func (h *TrazrExtension) wsSchemaAuthHandlerWrapper(handler func(w http.Response
 // wsScopedAuthHandlerWrapper validates JWT and enforces org/project scoping for WebSocket endpoints
 func (h *TrazrExtension) wsScopedAuthHandlerWrapper(handler func(w http.ResponseWriter, r *http.Request, conn *websocket.Conn)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		claims, err := auth.ValidateJWTFromRequest(r)
+		if err != nil {
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized", h.logger)
+			return
+		}
+		r = r.WithContext(auth.WithUserContext(r.Context(), auth.ClaimsToUserContext(claims)))
 		checker := auth.ScopedJWTAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 			// no-op, proceed to upgrade
 		})
@@ -330,9 +326,13 @@ func (h *TrazrExtension) wsScopedAuthHandlerWrapper(handler func(w http.Response
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 		go func() {
-			<-h.shutdownCtx.Done()
-			cancel()
+			select {
+			case <-h.shutdownCtx.Done():
+				cancel()
+			case <-ctx.Done():
+			}
 		}()
+		h.guardWebSocketSession(ctx, cancel, r, conn)
 		// Note: Do not start an additional read-drain here. Handlers wrapped by
 		// wsScopedAuthHandlerWrapper (e.g., StreamLogs) maintain their own
 		// reader goroutines. A second reader on the same connection is unsupported
@@ -529,6 +529,7 @@ func (h *TrazrExtension) Start(ctx context.Context, _ component.Host) error {
 	mux.HandleFunc("/api/v1/auth/reset-password", internal.APIRequestLimiter(h.createAuthHandler(NewResetPasswordHandler)))
 	mux.Handle("/api/v1/auth/whoami", auth.UserContextMiddleware(internal.WithMaxBodySizeFunc(h.createAuthHandler(NewWhoAmIHandler), internal.MaxAPIRequestSize)))
 	mux.Handle("/api/v1/auth/renew", auth.UserContextMiddleware(internal.WithMaxBodySizeFunc(h.createAuthHandler(NewRenewTokenHandler), internal.MaxAPIRequestSize)))
+	mux.Handle("/api/v1/auth/logout", auth.UserContextMiddleware(internal.WithMaxBodySizeFunc(h.createAuthHandler(NewLogoutHandler), internal.MaxAPIRequestSize)))
 
 	// API key management (JWT required)
 	mux.Handle("/api/v1/auth/apikeys", auth.UserContextMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -566,6 +567,10 @@ func (h *TrazrExtension) Start(ctx context.Context, _ component.Host) error {
 	mux.HandleFunc("/api/v1/admin/user/reset-password", internal.APIRequestLimiter(AdminOnlyMiddleware(h.createAuthHandler(NewResetUserPasswordHandler))))
 	mux.HandleFunc("/api/v1/admin/users/", internal.APIRequestLimiter(AdminOnlyMiddleware(h.createAuthHandler(NewDeleteUserByIDHandler))))
 	mux.HandleFunc("/api/v1/admin/user/roles", internal.APIRequestLimiter(AdminOnlyMiddleware(h.createAuthHandler(NewSetUserRolesHandler))))
+	mux.HandleFunc("/api/v1/admin/user/access", internal.APIRequestLimiter(AdminOnlyMiddleware(h.createAuthHandler(NewUserAccessHandler))))
+	mux.HandleFunc("/api/v1/admin/user/schemas", internal.APIRequestLimiter(AdminOnlyMiddleware(h.createAuthHandler(NewSetUserSchemasHandler))))
+	mux.HandleFunc("/api/v1/admin/user/revoke-sessions", internal.APIRequestLimiter(AdminOnlyMiddleware(h.createAuthHandler(NewRevokeUserSessionsHandler))))
+	mux.HandleFunc("/api/v1/admin/user/disabled", internal.APIRequestLimiter(AdminOnlyMiddleware(h.createAuthHandler(NewSetUserDisabledHandler))))
 
 	// Get ready-to-use services from ServiceResourceManager
 	logWriterService, err := h.rsMgr.GetLogWriter()
@@ -702,8 +707,10 @@ func (h *TrazrExtension) Start(ctx context.Context, _ component.Host) error {
 		endpoint = ":18888"
 	}
 	h.server = &http.Server{
-		Addr:           endpoint,
-		Handler:        withSecurityHeaders(withCORS(h.cfg.AllowedOrigins, mux)),
+		Addr: endpoint,
+		Handler: withSecurityHeaders(withCORS(h.cfg.AllowedOrigins, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			withMachineScopes(mux).ServeHTTP(w, r.WithContext(auth.WithSessionDatabase(r.Context(), db)))
+		}))),
 		ReadTimeout:    15 * time.Second,
 		WriteTimeout:   15 * time.Second,
 		IdleTimeout:    60 * time.Second,
@@ -854,7 +861,7 @@ func (h *TrazrExtension) getEventBusOrClose(conn *websocket.Conn, operation stri
 func (h *TrazrExtension) createAuthHandler(handlerFactory func(*sql.DB) http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		h.withDatabase(w, func(db *sql.DB) {
-			handlerFactory(db)(w, r)
+			handlerFactory(db)(w, r.WithContext(auth.WithSessionDatabase(r.Context(), db)))
 		})
 	}
 }
