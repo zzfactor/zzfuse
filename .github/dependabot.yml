@@ -1,0 +1,55 @@
+version: 2
+updates:
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /build/database
+      - /build/otel
+      - /frontend
+      - /services
+      - /trazr-mcp
+    schedule:
+      interval: weekly
+    groups:
+      container-images:
+        patterns: ['*']
+  - package-ecosystem: gomod
+    directories:
+      - /pkg/auth
+      - /pkg/auth/client
+      - /pkg/config
+      - /pkg/event
+      - /pkg/metrics
+      - /pkg/repository
+      - /pkg/util
+      - /trazrexporter
+      - /trazrextension
+      - /trazrprocessor
+      - /trazr-mcp
+      - /trazr-otel
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend-dependencies:
+        patterns: ['*']
+  - package-ecosystem: pip
+    directory: /services
+    schedule:
+      interval: weekly
+    groups:
+      python-dependencies:
+        patterns: ['*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

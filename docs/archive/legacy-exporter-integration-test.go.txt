@@ -1,0 +1,794 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+//go:build integration
+
+package trazrexporter
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"math/rand/v2"
+	"os"
+	"strconv"
+	"testing"
+	"time"
+
+	_ "github.com/jackc/pgx/v4/stdlib"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/pdata/pcommon"
+	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.uber.org/zap"
+)
+
+func TestIntegration(t *testing.T) {
+	// Get PostgreSQL connection from environment or use default
+	dsn := getTestPostgreSQLDSN()
+
+	// Test if PostgreSQL is available
+	if !isPostgreSQLAvailable(t, dsn) {
+		t.Skip("PostgreSQL not available, skipping integration test")
+	}
+
+	// Clean up and prepare test environment
+	if err := setupTestEnvironment(dsn); err != nil {
+		t.Fatalf("Failed to setup test environment: %v", err)
+	}
+
+	t.Run("exporting", func(t *testing.T) {
+		logExporter := newTestLogsExporter(t, dsn)
+		verifyExportLog(t, logExporter)
+
+		traceExporter := newTestTracesExporter(t, dsn)
+		verifyExporterTrace(t, traceExporter)
+
+		metricExporter := newTestMetricsExporter(t, dsn)
+		verifyExporterMetric(t, metricExporter)
+	})
+
+	t.Run("database creation", func(t *testing.T) {
+		// Verify that start function returns no error
+		logExporter := newTestLogsExporter(t, dsn)
+		verifyLogTable(t, logExporter)
+
+		traceExporter := newTestTracesExporter(t, dsn)
+		verifyTraceTable(t, traceExporter)
+
+		metricsExporter := newTestMetricsExporter(t, dsn)
+		verifyMetricTable(t, metricsExporter)
+	})
+}
+
+func getTestPostgreSQLDSN() string {
+	// Try environment variables first
+	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
+		return dsn
+	}
+
+	// Common default connection strings to try
+	defaults := []string{
+		"postgres://trazr:trazrpass@localhost:5432/trazr?sslmode=disable",
+		"postgres://user:password@localhost:5432/test?sslmode=disable",
+		"postgres://localhost:5432/postgres?sslmode=disable",
+		"postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable",
+	}
+
+	return defaults[0] // Return the first one as default
+}
+
+func isPostgreSQLAvailable(t *testing.T, dsn string) bool {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Logf("Failed to open PostgreSQL connection: %v", err)
+		return false
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		t.Logf("Failed to ping PostgreSQL: %v", err)
+		return false
+	}
+
+	t.Logf("PostgreSQL is available at: %s", dsn)
+	return true
+}
+
+func verifyExportLog(t *testing.T, logExporter *logsExporter) {
+	// Query the logs table to verify data was inserted correctly
+	tableName := fmt.Sprintf("%s.logs", logExporter.cfg.schemaName())
+
+	// Export multiple logs to verify all columns are filled
+	mustPushLogsData(t, logExporter, integrationSimpleLogs(3))
+
+	var count int
+	err := logExporter.client.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 3, count)
+
+	// Verify comprehensive log data - checking all major columns including scope_schema_url and numeric id
+	var (
+		id, body, serviceName, severityText, traceID, spanID, scopeSchemaUrl string
+		severityNumber, traceFlags                                           int16
+		resourceAttrs, scopeAttrs, logAttrs, metadata                        string
+		timestampNs                                                          int64
+	)
+	err = logExporter.client.QueryRow(fmt.Sprintf(`
+		SELECT 
+			id, body, service_name, severity_text, severity_number, trace_id, span_id, flags,
+			resource_attributes::text, scope_schema_url, scope_attributes::text, attributes::text, 
+			metadata::text, timestamp_ns
+		FROM %s 
+		ORDER BY timestamp_ns
+		LIMIT 1
+	`, tableName)).Scan(
+		&id, &body, &serviceName, &severityText, &severityNumber, &traceID, &spanID, &traceFlags,
+		&resourceAttrs, &scopeSchemaUrl, &scopeAttrs, &logAttrs, &metadata, &timestampNs,
+	)
+	require.NoError(t, err)
+
+	// Verify UUID column
+	require.Greater(t, id, int64(0), "numeric id should be > 0")
+
+	// Verify core data
+	require.Contains(t, body, "Integration test log message #1")
+	require.Equal(t, "integration-test", serviceName)
+	require.Equal(t, "INFO", severityText)
+	require.Equal(t, int16(9), severityNumber)
+	require.NotEmpty(t, traceID)
+	require.NotEmpty(t, spanID)
+	require.True(t, timestampNs > 0)
+
+	// Verify that HSTORE and JSONB columns are populated
+	require.Contains(t, resourceAttrs, "service.name")
+	require.Contains(t, resourceAttrs, "host.name")
+	require.Contains(t, scopeAttrs, "library.name")
+	require.Contains(t, logAttrs, "test.type")
+	require.Contains(t, logAttrs, "user.id")
+	require.Equal(t, "https://opentelemetry.io/schemas/1.7.0", scopeSchemaUrl) // Verify scope schema URL
+	require.Equal(t, "{}", metadata)                                           // Default empty JSON
+
+	t.Logf("✅ Logs verification: All columns populated correctly including numeric id and scope_schema_url")
+	t.Logf("   numeric id: %d", id)
+	t.Logf("   Resource attributes: %s", resourceAttrs)
+	t.Logf("   Scope schema URL: %s", scopeSchemaUrl)
+	t.Logf("   Scope attributes: %s", scopeAttrs)
+	t.Logf("   Log attributes: %s", logAttrs)
+}
+
+func verifyExporterTrace(t *testing.T, traceExporter *spansExporter) {
+	// Query the spans table to verify data was inserted correctly
+	tableName := fmt.Sprintf("%s.spans", traceExporter.cfg.schemaName())
+
+	// Export multiple spanso verify all columns are filled
+	mustPushTracesData(t, traceExporter, integrationSimpleTraces(3))
+
+	var count int
+	err := traceExporter.client.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 3, count)
+
+	// Verify comprehensive trace data - checking all major columns including numeric id
+	var (
+		id, spanName, serviceName, statusMessage, traceID, spanID, parentSpanID, traceState, spanKind string
+		resourceAttrs, spanAttrs, events, links, metadata                                             string
+		timestampNs, durationNs                                                                       int64
+		statusCode                                                                                    int
+	)
+	err = traceExporter.client.QueryRow(fmt.Sprintf(`
+		SELECT 
+			id, name, service_name, status_code, status_message, trace_id, span_id, parent_span_id,
+			trace_state, span_kind, resource_attributes::text, attributes::text,
+			events::text, links::text, metadata::text, timestamp_ns, duration
+		FROM %s 
+		ORDER BY timestamp_ns
+		LIMIT 1
+	`, tableName)).Scan(
+		&id, &spanName, &serviceName, &statusCode, &statusMessage, &traceID, &spanID, &parentSpanID,
+		&traceState, &spanKind, &resourceAttrs, &spanAttrs, &events, &links, &metadata, &timestampNs, &durationNs,
+	)
+	require.NoError(t, err)
+
+	// Verify UUID column
+	require.Greater(t, id, int64(0), "numeric id should be > 0")
+
+	// Verify core data
+	require.Contains(t, spanName, "integration-test-span-1")
+	require.Equal(t, "integration-test", serviceName)
+	require.Equal(t, 1, statusCode) // StatusCodeOk = 1
+	require.Equal(t, "Span completed successfully", statusMessage)
+	require.NotEmpty(t, traceID)
+	require.NotEmpty(t, spanID)
+	require.NotEmpty(t, parentSpanID)
+	require.Contains(t, traceState, "vendor1=value1")
+	require.Equal(t, "Server", spanKind) // SpanKindServer.String() = "Server"
+	require.True(t, timestampNs > 0)
+	require.True(t, durationNs > 0)
+
+	// Verify that HSTORE and JSONB columns are populated
+	require.Contains(t, resourceAttrs, "service.name")
+	require.Contains(t, resourceAttrs, "host.name")
+	require.Contains(t, spanAttrs, "test.type")
+	require.Contains(t, spanAttrs, "http.method")
+	require.Contains(t, events, "request.start")
+	require.Contains(t, links, "child")
+	require.Equal(t, "{}", metadata) // Default empty JSON
+
+	t.Logf("✅ Traces verification: All columns populated correctly including numeric id")
+	t.Logf("   numeric id: %d", id)
+	t.Logf("   Resource attributes: %s", resourceAttrs)
+	t.Logf("   Span attributes: %s", spanAttrs)
+	t.Logf("   Events: %s", events)
+	t.Logf("   Links: %s", links)
+}
+
+func verifyExporterMetric(t *testing.T, metricExporter *metricsExporter) {
+	// Export multiple metrics to verify all columns are filled
+	mustPushMetricsData(t, metricExporter, integrationSimpleMetrics(3))
+
+	// Verify each table has data and check comprehensive columns
+	schema := metricExporter.cfg.schemaName()
+	tables := map[string]string{
+		SignalTypeGaugeMetrics:                "id, name, service_name, value, resource_attributes::text, exemplars::text",
+		SignalTypeSumMetrics:                  "name, service_name, value, is_monotonic, exemplars::text",
+		"metrics_summary":                     "name, service_name, count, sum, value_at_quantiles::text",
+		"metrics_histogram":                   "name, service_name, count, sum, bucket_counts::text, exemplars::text",
+		SignalTypeExponentialHistogramMetrics: "name, service_name, count, sum, positive_bucket_counts::text, exemplars::text",
+	}
+
+	for table, columns := range tables {
+		qualifiedTable := fmt.Sprintf("%s.%s", schema, table)
+		var count int
+		err := metricExporter.client.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", qualifiedTable)).Scan(&count)
+		require.NoError(t, err)
+		require.Equal(t, 3, count, "Expected 3 rows in %s", table)
+
+		// Verify comprehensive data for each table type
+		switch table {
+		case SignalTypeGaugeMetrics:
+			var id, metricName, serviceName, resourceAttrs, exemplars string
+			var value float64
+			err = metricExporter.client.QueryRow(fmt.Sprintf(`
+				SELECT %s FROM %s ORDER BY timestamp_ns LIMIT 1
+			`, columns, qualifiedTable)).Scan(&id, &metricName, &serviceName, &value, &resourceAttrs, &exemplars)
+			require.NoError(t, err)
+
+			// Verify numeric id column
+			require.Greater(t, id, int64(0), "numeric id should be > 0")
+
+			require.Contains(t, metricName, "integration_test_gauge_1")
+			require.Equal(t, "integration-test", serviceName)
+			require.True(t, value > 0)
+			require.Contains(t, resourceAttrs, "service.name")
+			require.Contains(t, exemplars, "user-123")
+			t.Logf("✅ Gauge table: All columns populated correctly including numeric id")
+			t.Logf("   numeric id: %d", id)
+
+		case SignalTypeSumMetrics:
+			var metricName, serviceName, exemplars string
+			var value float64
+			var isMonotonic bool
+			err = metricExporter.client.QueryRow(fmt.Sprintf(`
+				SELECT %s FROM %s ORDER BY timestamp_ns LIMIT 1
+			`, columns, qualifiedTable)).Scan(&metricName, &serviceName, &value, &isMonotonic, &exemplars)
+			require.NoError(t, err)
+			require.Contains(t, metricName, "integration_test_sum_1")
+			require.Equal(t, "integration-test", serviceName)
+			require.True(t, value > 0)
+			require.True(t, isMonotonic)
+			require.Contains(t, exemplars, "txn-456")
+			t.Logf("✅ Sum table: All columns populated correctly")
+
+		case "metrics_summary":
+			var metricName, serviceName, valueAtQuantiles string
+			var count uint64
+			var sum float64
+			err = metricExporter.client.QueryRow(fmt.Sprintf(`
+				SELECT %s FROM %s ORDER BY timestamp_ns LIMIT 1
+			`, columns, qualifiedTable)).Scan(&metricName, &serviceName, &count, &sum, &valueAtQuantiles)
+			require.NoError(t, err)
+			require.Contains(t, metricName, "integration_test_summary_1")
+			require.Equal(t, "integration-test", serviceName)
+			require.True(t, count > 0)
+			require.True(t, sum > 0)
+			require.Contains(t, valueAtQuantiles, "0.5")
+			require.Contains(t, valueAtQuantiles, "0.95")
+			require.Contains(t, valueAtQuantiles, "0.99")
+			t.Logf("✅ Summary table: All columns populated correctly")
+
+		case "metrics_histogram":
+			var metricName, serviceName, bucketCounts, exemplars string
+			var count uint64
+			var sum float64
+			err = metricExporter.client.QueryRow(fmt.Sprintf(`
+				SELECT %s FROM %s ORDER BY timestamp_ns LIMIT 1
+			`, columns, qualifiedTable)).Scan(&metricName, &serviceName, &count, &sum, &bucketCounts, &exemplars)
+			require.NoError(t, err)
+			require.Contains(t, metricName, "integration_test_histogram_1")
+			require.Equal(t, "integration-test", serviceName)
+			require.True(t, count > 0)
+			require.True(t, sum > 0)
+			require.NotEmpty(t, bucketCounts)
+			require.Contains(t, exemplars, "select")
+			t.Logf("✅ Histogram table: All columns populated correctly")
+
+		case SignalTypeExponentialHistogramMetrics:
+			var metricName, serviceName, positiveBuckets, exemplars string
+			var count uint64
+			var sum float64
+			err = metricExporter.client.QueryRow(fmt.Sprintf(`
+				SELECT %s FROM %s ORDER BY timestamp_ns LIMIT 1
+			`, columns, qualifiedTable)).Scan(&metricName, &serviceName, &count, &sum, &positiveBuckets, &exemplars)
+			require.NoError(t, err)
+			require.Contains(t, metricName, "integration_test_exp_histogram_1")
+			require.Equal(t, "integration-test", serviceName)
+			require.True(t, count > 0)
+			require.True(t, sum > 0)
+			require.NotEmpty(t, positiveBuckets)
+			require.Contains(t, exemplars, "heap")
+			t.Logf("✅ Exponential Histogram table: All columns populated correctly")
+		}
+	}
+
+	t.Logf("✅ All metrics tables: Comprehensive column verification completed")
+}
+
+func verifyLogTable(t *testing.T, logExporter *logsExporter) {
+	// Verify the logs table exists in the test schema
+	var exists bool
+	err := logExporter.client.QueryRow(`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables 
+			WHERE table_schema = $1 AND table_name = 'logs'
+		)
+	`, logExporter.cfg.schemaName()).Scan(&exists)
+	require.NoError(t, err)
+	require.True(t, exists, "logs table should exist")
+}
+
+func verifyTraceTable(t *testing.T, traceExporter *spansorter) {
+	// Verify the spansable exists in the test schema
+	var exists bool
+	err := traceExporter.client.QueryRow(`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables 
+			WHERE table_schema = $1 AND table_name = 'spans
+		)
+	`, traceExporter.cfg.schemaName()).Scan(&exists)
+	require.NoError(t, err)
+	require.True(t, exists, "spansable should exist")
+}
+
+func verifyMetricTable(t *testing.T, metricExporter *metricsExporter) {
+	// Verify the gauge_metrics table exists in the test schema
+	var exists bool
+	err := metricExporter.client.QueryRow(`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables 
+			WHERE table_schema = $1 AND table_name = 'gauge_metrics'
+		)
+	`, metricExporter.cfg.schemaName()).Scan(&exists)
+	require.NoError(t, err)
+	require.True(t, exists, "gauge_metrics table should exist")
+}
+
+// Helper functions for creating test exporters
+
+func newTestLogsExporter(t *testing.T, dsn string, fns ...func(*Config)) *logsExporter {
+	exporter, err := newLogsExporter(zap.NewNop(), withTestExporterConfig(fns...)(dsn))
+	require.NoError(t, err)
+	require.NoError(t, exporter.start(context.TODO(), nil))
+
+	t.Cleanup(func() { _ = exporter.shutdown(context.TODO()) })
+	return exporter
+}
+
+func newTestTracesExporter(t *testing.T, dsn string, fns ...func(*Config)) *spansxporter {
+	exporter, err := newTracesExporter(zap.NewNop(), withTestExporterConfig(fns...)(dsn))
+	require.NoError(t, err)
+	require.NoError(t, exporter.start(context.TODO(), nil))
+
+	t.Cleanup(func() { _ = exporter.shutdown(context.TODO()) })
+	return exporter
+}
+
+func newTestMetricsExporter(t *testing.T, dsn string, fns ...func(*Config)) *metricsExporter {
+	exporter, err := newMetricsExporter(zap.NewNop(), withTestExporterConfig(fns...)(dsn))
+	require.NoError(t, err)
+	require.NoError(t, exporter.start(context.TODO(), nil))
+
+	t.Cleanup(func() { _ = exporter.shutdown(context.TODO()) })
+	return exporter
+}
+
+func withTestExporterConfig(fns ...func(*Config)) func(string) *Config {
+	return func(endpoint string) *Config {
+		var configMods []func(*Config)
+		configMods = append(configMods, func(cfg *Config) {
+			cfg.Endpoint = endpoint
+			cfg.Schema = "otel_test"
+		})
+		configMods = append(configMods, fns...)
+		return withDefaultConfig(configMods...)
+	}
+}
+
+func withDefaultConfig(fns ...func(*Config)) *Config {
+	cfg := createDefaultConfig().(*Config)
+	for _, fn := range fns {
+		fn(cfg)
+	}
+	return cfg
+}
+
+// Helper functions to create test data
+
+func integrationSimpleLogs(count int) plog.Logs {
+	logs := plog.NewLogs()
+	rl := logs.ResourceLogs().AppendEmpty()
+
+	// Fill resource attributes with multiple key-value pairs
+	rl.Resource().Attributes().PutStr("service.name", "integration-test")
+	rl.Resource().Attributes().PutStr("service.version", "1.2.3")
+	rl.Resource().Attributes().PutStr("deployment.environment", "test")
+	rl.Resource().Attributes().PutStr("host.name", "test-host")
+	rl.Resource().Attributes().PutInt("process.pid", 12345)
+	rl.SetSchemaUrl("https://opentelemetry.io/schemas/1.4.0")
+
+	sl := rl.ScopeLogs().AppendEmpty()
+	sl.Scope().SetName("integration-test-scope")
+	sl.Scope().SetVersion("1.0.0")
+
+	// Fill scope attributes
+	sl.Scope().Attributes().PutStr("library.name", "test-library")
+	sl.Scope().Attributes().PutStr("library.version", "2.1.0")
+	sl.Scope().SetDroppedAttributesCount(2) // Simulate some dropped attributes
+	sl.SetSchemaUrl("https://opentelemetry.io/schemas/1.7.0")
+
+	baseTimestamp := time.Now().Add(-time.Hour)
+	for i := 0; i < count; i++ {
+		// Create unique timestamp for each record
+		recordTimestamp := baseTimestamp.Add(time.Duration(i) * time.Second)
+		lr := sl.LogRecords().AppendEmpty()
+		lr.SetTimestamp(pcommon.NewTimestampFromTime(recordTimestamp))
+		lr.SetObservedTimestamp(pcommon.NewTimestampFromTime(recordTimestamp))
+		lr.SetSeverityNumber(plog.SeverityNumberInfo)
+		lr.SetSeverityText("INFO")
+		lr.Body().SetStr(fmt.Sprintf("Integration test log message #%d with detailed information", i+1))
+
+		// Fill log attributes with multiple types
+		lr.Attributes().PutStr("test.type", "integration")
+		lr.Attributes().PutStr("log.category", "application")
+		lr.Attributes().PutInt("request.id", int64(100+i))
+		lr.Attributes().PutDouble("duration.ms", 123.456)
+		lr.Attributes().PutBool("is_error", false)
+		lr.Attributes().PutStr("user.id", fmt.Sprintf("user-%d", i+1))
+
+		// Set trace context to link logs to spans
+		lr.SetTraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+		lr.SetSpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
+		lr.SetFlags(plog.DefaultLogRecordFlags | plog.LogRecordFlags(0x01)) // Set some flags
+	}
+
+	return logs
+}
+
+func integrationSimpleTraces(count int) ptrace.Traces {
+	spans := ptrace.NewTraces()
+	rs := spansesourceSpans().AppendEmpty()
+
+	// Fill resource attributes with multiple key-value pairs
+	rs.Resource().Attributes().PutStr("service.name", "integration-test")
+	rs.Resource().Attributes().PutStr("service.version", "1.2.3")
+	rs.Resource().Attributes().PutStr("deployment.environment", "test")
+	rs.Resource().Attributes().PutStr("host.name", "test-host")
+	rs.Resource().Attributes().PutInt("process.pid", 12345)
+	rs.SetSchemaUrl("https://opentelemetry.io/schemas/1.4.0")
+
+	ss := rs.ScopeSpans().AppendEmpty()
+	ss.Scope().SetName("integration-test-scope")
+	ss.Scope().SetVersion("1.0.0")
+
+	// Fill scope attributes
+	ss.Scope().Attributes().PutStr("library.name", "test-library")
+	ss.Scope().Attributes().PutStr("library.version", "2.1.0")
+	ss.Scope().SetDroppedAttributesCount(3) // Simulate some dropped attributes
+	ss.SetSchemaUrl("https://opentelemetry.io/schemas/1.7.0")
+
+	baseTime := time.Now().Add(-time.Hour)
+	for i := 0; i < count; i++ {
+		// Create unique timestamp for each span
+		spanStartTime := baseTime.Add(time.Duration(i) * time.Second)
+		spanEndTime := spanStartTime.Add(time.Millisecond * 100)
+
+		span := ss.Spans().AppendEmpty()
+		span.SetTraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+		span.SetSpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
+		span.SetParentSpanID([8]byte{1, 2, 4, 5, 6, 7, 8, 9})
+		span.SetName(fmt.Sprintf("integration-test-span-%d", i+1))
+		span.SetKind(ptrace.SpanKindServer)
+		span.SetStartTimestamp(pcommon.NewTimestampFromTime(spanStartTime))
+		span.SetEndTimestamp(pcommon.NewTimestampFromTime(spanEndTime))
+
+		// Set detailed status
+		span.Status().SetCode(ptrace.StatusCodeOk)
+		span.Status().SetMessage("Span completed successfully")
+
+		// Fill span attributes with multiple types
+		span.Attributes().PutStr("test.type", "integration")
+		span.Attributes().PutStr("http.method", "GET")
+		span.Attributes().PutStr("http.url", fmt.Sprintf("https://api.example.com/users/%d", i+1))
+		span.Attributes().PutInt("http.status_code", 200)
+		span.Attributes().PutDouble("response.time", 0.125)
+		span.Attributes().PutBool("cache.hit", true)
+		span.Attributes().PutStr("user.id", fmt.Sprintf("user-%d", i+1))
+
+		// Set trace state with meaningful data
+		span.TraceState().FromRaw("vendor1=value1,vendor2=value2")
+
+		// Add events to demonstrate the events JSONB column
+		event1 := span.Events().AppendEmpty()
+		event1.SetName("request.start")
+		event1.SetTimestamp(pcommon.NewTimestampFromTime(spanStartTime))
+		event1.Attributes().PutStr("event.type", "request")
+		event1.Attributes().PutInt("request.size", 1024)
+
+		event2 := span.Events().AppendEmpty()
+		event2.SetName("request.end")
+		event2.SetTimestamp(pcommon.NewTimestampFromTime(spanStartTime.Add(time.Millisecond * 90)))
+		event2.Attributes().PutStr("event.type", "response")
+		event2.Attributes().PutInt("response.size", 2048)
+
+		// Add links to demonstrate the links JSONB column
+		link := span.Links().AppendEmpty()
+		link.SetTraceID([16]byte{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17})
+		link.SetSpanID([8]byte{2, 3, 4, 5, 6, 7, 8, 9})
+		link.Attributes().PutStr("link.type", "child")
+		link.Attributes().PutStr("service.name", "related-service")
+		link.SetDroppedAttributesCount(1)
+	}
+
+	return spans
+}
+
+func integrationSimpleMetrics(count int) pmetric.Metrics {
+	metrics := pmetric.NewMetrics()
+	rm := metrics.ResourceMetrics().AppendEmpty()
+
+	// Fill resource attributes with multiple key-value pairs
+	rm.Resource().Attributes().PutStr("service.name", "integration-test")
+	rm.Resource().Attributes().PutStr("service.version", "1.2.3")
+	rm.Resource().Attributes().PutStr("deployment.environment", "test")
+	rm.Resource().Attributes().PutStr("host.name", "test-host")
+	rm.Resource().Attributes().PutInt("process.pid", 12345)
+	rm.SetSchemaUrl("https://opentelemetry.io/schemas/1.4.0")
+
+	sm := rm.ScopeMetrics().AppendEmpty()
+	sm.Scope().SetName("integration-test-scope")
+	sm.Scope().SetVersion("1.0.0")
+
+	// Fill scope attributes
+	sm.Scope().Attributes().PutStr("library.name", "test-library")
+	sm.Scope().Attributes().PutStr("library.version", "2.1.0")
+	sm.Scope().SetDroppedAttributesCount(2) // Simulate some dropped attributes
+	sm.SetSchemaUrl("https://opentelemetry.io/schemas/1.7.0")
+
+	baseTimestamp := time.Now().Add(-time.Hour)
+	baseStartTime := baseTimestamp.Add(-time.Minute)
+
+	for i := 0; i < count; i++ {
+		// Create unique timestamps for each metric record
+		recordTimestamp := baseTimestamp.Add(time.Duration(i) * time.Second)
+		recordStartTime := baseStartTime.Add(time.Duration(i) * time.Second)
+		// Create a gauge metric with exemplars
+		gauge := sm.Metrics().AppendEmpty()
+		gauge.SetName(fmt.Sprintf("integration_test_gauge_%d", i+1))
+		gauge.SetDescription("Integration test gauge metric with comprehensive data")
+		gauge.SetUnit("requests/sec")
+
+		gaugeData := gauge.SetEmptyGauge()
+		dp := gaugeData.DataPoints().AppendEmpty()
+		dp.SetStartTimestamp(pcommon.NewTimestampFromTime(recordStartTime))
+		dp.SetTimestamp(pcommon.NewTimestampFromTime(recordTimestamp))
+		dp.SetDoubleValue(42.5 + float64(i))
+		dp.SetFlags(pmetric.DefaultDataPointFlags)
+
+		// Fill data point attributes
+		dp.Attributes().PutStr("test.type", "integration")
+		dp.Attributes().PutStr("endpoint", fmt.Sprintf("/api/v1/users/%d", i+1))
+		dp.Attributes().PutStr("method", "GET")
+		dp.Attributes().PutInt("status_code", 200)
+		dp.Attributes().PutBool("cache_enabled", true)
+
+		// Add exemplars
+		exemplar := dp.Exemplars().AppendEmpty()
+		exemplar.SetTimestamp(pcommon.NewTimestampFromTime(recordTimestamp))
+		exemplar.SetDoubleValue(42.0)
+		exemplar.SetTraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+		exemplar.SetSpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
+		exemplar.FilteredAttributes().PutStr("user.id", "user-123")
+
+		// Create a sum metric with full data
+		sum := sm.Metrics().AppendEmpty()
+		sum.SetName(fmt.Sprintf("integration_test_sum_%d", i+1))
+		sum.SetDescription("Integration test sum metric with comprehensive data")
+		sum.SetUnit("bytes")
+
+		sumData := sum.SetEmptySum()
+		sumData.SetIsMonotonic(true)
+		sumData.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+		sumDp := sumData.DataPoints().AppendEmpty()
+		sumDp.SetStartTimestamp(pcommon.NewTimestampFromTime(recordStartTime))
+		sumDp.SetTimestamp(pcommon.NewTimestampFromTime(recordTimestamp))
+		sumDp.SetDoubleValue(1024.0 + float64(i*100))
+		sumDp.SetFlags(pmetric.DefaultDataPointFlags)
+
+		// Fill sum data point attributes
+		sumDp.Attributes().PutStr("test.type", "integration")
+		sumDp.Attributes().PutStr("operation", "upThere is one that load the table...")
+		sumDp.Attributes().PutStr("file_type", "json")
+		sumDp.Attributes().PutInt("batch_size", int64(10+i))
+
+		// Add sum exemplars
+		sumExemplar := sumDp.Exemplars().AppendEmpty()
+		sumExemplar.SetTimestamp(pcommon.NewTimestampFromTime(recordTimestamp))
+		sumExemplar.SetDoubleValue(1000.0)
+		sumExemplar.SetTraceID([16]byte{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17})
+		sumExemplar.SetSpanID([8]byte{2, 3, 4, 5, 6, 7, 8, 9})
+		sumExemplar.FilteredAttributes().PutStr("transaction.id", "txn-456")
+
+		// Create a summary metric with quantiles
+		summary := sm.Metrics().AppendEmpty()
+		summary.SetName(fmt.Sprintf("integration_test_summary_%d", i+1))
+		summary.SetDescription("Integration test summary metric with quantiles")
+		summary.SetUnit("milliseconds")
+
+		summaryData := summary.SetEmptySummary()
+		summaryDp := summaryData.DataPoints().AppendEmpty()
+		summaryDp.SetStartTimestamp(pcommon.NewTimestampFromTime(recordStartTime))
+		summaryDp.SetTimestamp(pcommon.NewTimestampFromTime(recordTimestamp))
+		summaryDp.SetCount(uint64(100 + i*10))
+		summaryDp.SetSum(150.5 + float64(i*25))
+		summaryDp.SetFlags(pmetric.DefaultDataPointFlags)
+
+		// Fill summary attributes
+		summaryDp.Attributes().PutStr("test.type", "integration")
+		summaryDp.Attributes().PutStr("service.tier", "backend")
+		summaryDp.Attributes().PutStr("region", "us-west-2")
+		summaryDp.Attributes().PutInt("replica_count", 3)
+
+		// Add multiple quantiles
+		quantile50 := summaryDp.QuantileValues().AppendEmpty()
+		quantile50.SetQuantile(0.50)
+		quantile50.SetValue(10.0 + float64(i))
+
+		quantile95 := summaryDp.QuantileValues().AppendEmpty()
+		quantile95.SetQuantile(0.95)
+		quantile95.SetValue(20.0 + float64(i*2))
+
+		quantile99 := summaryDp.QuantileValues().AppendEmpty()
+		quantile99.SetQuantile(0.99)
+		quantile99.SetValue(30.0 + float64(i*3))
+
+		// Create a histogram metric with buckets
+		histogram := sm.Metrics().AppendEmpty()
+		histogram.SetName(fmt.Sprintf("integration_test_histogram_%d", i+1))
+		histogram.SetDescription("Integration test histogram metric with buckets")
+		histogram.SetUnit("seconds")
+
+		histogramData := histogram.SetEmptyHistogram()
+		histogramData.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+		histDp := histogramData.DataPoints().AppendEmpty()
+		histDp.SetStartTimestamp(pcommon.NewTimestampFromTime(recordStartTime))
+		histDp.SetTimestamp(pcommon.NewTimestampFromTime(recordTimestamp))
+		histDp.SetCount(uint64(200 + i*20))
+		histDp.SetSum(300.0 + float64(i*50))
+		histDp.SetMin(0.1)
+		histDp.SetMax(25.0 + float64(i))
+		histDp.SetFlags(pmetric.DefaultDataPointFlags)
+
+		// Fill histogram attributes
+		histDp.Attributes().PutStr("test.type", "integration")
+		histDp.Attributes().PutStr("operation", "database_query")
+		histDp.Attributes().PutStr("table", "users")
+		histDp.Attributes().PutBool("indexed", true)
+
+		// Add explicit bounds and bucket counts
+		histDp.ExplicitBounds().FromRaw([]float64{0.1, 0.5, 1.0, 5.0, 10.0, 20.0})
+		histDp.BucketCounts().FromRaw([]uint64{uint64(5 + i), uint64(10 + i), uint64(20 + i), uint64(15 + i), uint64(8 + i), uint64(3 + i), uint64(2 + i)})
+
+		// Add histogram exemplars
+		histExemplar := histDp.Exemplars().AppendEmpty()
+		histExemplar.SetTimestamp(pcommon.NewTimestampFromTime(recordTimestamp))
+		histExemplar.SetDoubleValue(1.5)
+		histExemplar.SetTraceID([16]byte{3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18})
+		histExemplar.SetSpanID([8]byte{3, 4, 5, 6, 7, 8, 9, 10})
+		histExemplar.FilteredAttributes().PutStr("query.type", "select")
+
+		// Create an exponential histogram metric
+		expHistogram := sm.Metrics().AppendEmpty()
+		expHistogram.SetName(fmt.Sprintf("integration_test_exp_histogram_%d", i+1))
+		expHistogram.SetDescription("Integration test exponential histogram with buckets")
+		expHistogram.SetUnit("bytes")
+
+		expHistogramData := expHistogram.SetEmptyExponentialHistogram()
+		expHistogramData.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+		expHistDp := expHistogramData.DataPoints().AppendEmpty()
+		expHistDp.SetStartTimestamp(pcommon.NewTimestampFromTime(recordStartTime))
+		expHistDp.SetTimestamp(pcommon.NewTimestampFromTime(recordTimestamp))
+		expHistDp.SetCount(uint64(150 + i*15))
+		expHistDp.SetSum(180.5 + float64(i*30))
+		expHistDp.SetMin(0.5)
+		expHistDp.SetMax(100.0 + float64(i*10))
+		expHistDp.SetScale(2)
+		expHistDp.SetZeroCount(uint64(1 + i))
+		expHistDp.SetFlags(pmetric.DefaultDataPointFlags)
+
+		// Fill exponential histogram attributes
+		expHistDp.Attributes().PutStr("test.type", "integration")
+		expHistDp.Attributes().PutStr("metric.source", "memory_usage")
+		expHistDp.Attributes().PutStr("component", "cache")
+		expHistDp.Attributes().PutInt("shard_id", int64(i+1))
+
+		// Add positive buckets
+		expHistDp.Positive().SetOffset(1)
+		expHistDp.Positive().BucketCounts().FromRaw([]uint64{uint64(2 + i), uint64(5 + i), uint64(8 + i), uint64(4 + i), uint64(2 + i)})
+
+		// Add negative buckets (rare but possible)
+		expHistDp.Negative().SetOffset(-1)
+		expHistDp.Negative().BucketCounts().FromRaw([]uint64{uint64(1), uint64(1)})
+
+		// Add exponential histogram exemplars
+		expExemplar := expHistDp.Exemplars().AppendEmpty()
+		expExemplar.SetTimestamp(pcommon.NewTimestampFromTime(recordTimestamp))
+		expExemplar.SetDoubleValue(50.0)
+		expExemplar.SetTraceID([16]byte{4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19})
+		expExemplar.SetSpanID([8]byte{4, 5, 6, 7, 8, 9, 10, 11})
+		expExemplar.FilteredAttributes().PutStr("memory.pool", "heap")
+	}
+
+	return metrics
+}
+
+// Helper functions for pushing data
+
+func mustPushLogsData(t *testing.T, exporter *logsExporter, ld plog.Logs) {
+	err := exporter.pushLogsData(context.TODO(), ld)
+	require.NoError(t, err)
+}
+
+func mustPushTracesData(t *testing.T, exporter *spansExporter, td ptrace.Traces) {
+	err := exporter.pushTraceData(context.TODO(), td)
+	require.NoError(t, err)
+}
+
+func mustPushMetricsData(t *testing.T, exporter *metricsExporter, md pmetric.Metrics) {
+	err := exporter.pushMetricsData(context.TODO(), md)
+	require.NoError(t, err)
+}
+
+func randPort() string {
+	return strconv.Itoa(rand.IntN(9999-5000) + 5000)
+}
+
+// setupTestEnvironment drops and recreates the test schema to ensure clean state
+func setupTestEnvironment(dsn string) error {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer db.Close()
+
+	// Drop the entire test schema to ensure clean state
+	_, err = db.Exec("DROP SCHEMA IF EXISTS otel_test CASCADE")
+	if err != nil {
+		return fmt.Errorf("failed to drop test schema: %w", err)
+	}
+
+	return nil
+}

@@ -1,0 +1,392 @@
+//go:build old_integration_disabled
+
+package trazrextension
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+// readTestCreds requires explicit credentials for dedicated integration infrastructure.
+func readTestCreds(t *testing.T) (string, string, string) {
+	t.Helper()
+	if os.Getenv("TRAZR_IT") != "1" {
+		t.Skip("set TRAZR_IT=1 to run external integration tests")
+	}
+	endpoint := os.Getenv("TEST_API_BASE_URL")
+	username := os.Getenv("TEST_USERNAME")
+	password := os.Getenv("TEST_PASSWORD")
+	if endpoint == "" || username == "" || password == "" {
+		t.Fatal("set TEST_API_BASE_URL, TEST_USERNAME, and TEST_PASSWORD for integration tests")
+	}
+	return endpoint, username, password
+}
+
+// --- API Key Flow ---
+
+// createAPIKey creates an API key for the logged-in user and returns the plaintext key and name.
+func createAPIKey(t *testing.T, baseURL, userToken string) (string, string) {
+	t.Helper()
+	var resp struct {
+		Key    string         `json:"key"`
+		APIKey map[string]any `json:"api_key"`
+	}
+	name := fmt.Sprintf("it-key-%d", time.Now().UnixNano())
+	code, data := httpJSON(t, http.MethodPost, strings.TrimRight(baseURL, "/")+"/api/v1/auth/apikeys", map[string]any{
+		"name":   name,
+		"scopes": []string{"notifications:write"},
+	}, map[string]string{"Authorization": "Bearer " + userToken}, &resp)
+	if code != http.StatusCreated || strings.TrimSpace(resp.Key) == "" {
+		t.Fatalf("create apikey failed: code=%d body=%s", code, string(data))
+	}
+	return resp.Key, name
+}
+
+// exchangeAPIKey exchanges a plaintext API key for a short-lived JWT.
+func exchangeAPIKey(t *testing.T, baseURL, plaintext string) string {
+	t.Helper()
+	var resp struct {
+		Token string `json:"token"`
+	}
+	code, data := httpJSON(t, http.MethodPost, strings.TrimRight(baseURL, "/")+"/api/v1/auth/apikeys/exchange", nil, map[string]string{"X-API-Key": plaintext}, &resp)
+	if code != http.StatusOK || strings.TrimSpace(resp.Token) == "" {
+		t.Fatalf("exchange apikey failed: code=%d body=%s", code, string(data))
+	}
+	return resp.Token
+}
+
+// listAPIKeys fetches user's API keys for debugging (no plaintext).
+func listAPIKeys(t *testing.T, baseURL, userToken string) []map[string]any {
+	t.Helper()
+	var resp struct {
+		Keys []map[string]any `json:"keys"`
+	}
+	code, data := httpJSON(t, http.MethodGet, strings.TrimRight(baseURL, "/")+"/api/v1/auth/apikeys", nil, map[string]string{"Authorization": "Bearer " + userToken}, &resp)
+	if code != http.StatusOK {
+		t.Logf("list apikeys failed: code=%d body=%s", code, string(data))
+	}
+	return resp.Keys
+}
+
+func TestIntegration_APIKey_Enqueue_UserReceives(t *testing.T) {
+	if os.Getenv("TRAZR_IT") != "1" {
+		t.Skip("set TRAZR_IT=1 to run integration tests against live server")
+	}
+	base, user, pass := readTestCreds(t)
+	// User logs in (will receive notifications)
+	userTok := tokenFromLogin(t, base, user, pass)
+
+	// Create API key for this user and exchange it to JWT (client sender)
+	plaintext, keyName := createAPIKey(t, base, userTok)
+	// Debug: list keys and log expiry of latest
+	keys := listAPIKeys(t, base, userTok)
+	if len(keys) > 0 {
+		t.Logf("latest key: name=%v expires_at=%v created_at=%v", keys[0]["name"], keys[0]["expires_at"], keys[0]["created_at"])
+	}
+	m2mTok := exchangeAPIKey(t, base, plaintext)
+
+	// Connect user's WS listener
+	wsBase := wsURLFromHTTP(strings.TrimRight(base, "/"))
+	wsURL := fmt.Sprintf("%s/api/v1/stream/user/notifications?topics=alerts&wait_for_established=true&ping_interval=5", wsBase)
+	dialer := websocket.Dialer{}
+	head := http.Header{}
+	head.Set("Authorization", "Bearer "+userTok)
+	c, _, err := dialer.Dial(wsURL, head)
+	if err != nil {
+		t.Fatalf("ws dial: %v", err)
+	}
+	defer c.Close()
+	_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+	// Expect ready
+	if _, msg, err := c.ReadMessage(); err != nil {
+		t.Fatalf("ws read ready: %v", err)
+	} else {
+		var m map[string]any
+		_ = json.Unmarshal(msg, &m)
+		if m["type"] != "ready" {
+			t.Fatalf("expected ready, got %s", string(msg))
+		}
+	}
+
+	// Enqueue with API key's exchanged JWT
+	var enqResp struct {
+		ID string `json:"id"`
+	}
+	code, data := httpJSON(t, http.MethodPost, strings.TrimRight(base, "/")+"/api/v1/user/notifications", map[string]any{
+		"topic": "alerts",
+		"data":  map[string]any{"title": "Hello via API key", "body": "from integration test"},
+	}, map[string]string{"Authorization": "Bearer " + m2mTok}, &enqResp)
+	if code != 200 || enqResp.ID == "" {
+		t.Fatalf("enqueue (apikey) failed: code=%d body=%s", code, string(data))
+	}
+
+	// Receive notification as the user listener
+	deadline := time.Now().Add(10 * time.Second)
+	match := regexp.MustCompile(`"type"\s*:\s*"notification"`)
+	for time.Now().Before(deadline) {
+		_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+		_, msg, err := c.ReadMessage()
+		if err != nil {
+			t.Fatalf("ws read notif: %v", err)
+		}
+		if match.Match(msg) && strings.Contains(string(msg), "\"topic\":\"alerts\"") {
+			// optional cleanup: revoke the API key created for this test
+			if os.Getenv("TRAZR_IT_CLEANUP") == "1" {
+				cleanupAPIKeyByName(t, base, userTok, keyName)
+			}
+			return // success
+		}
+	}
+	t.Fatalf("did not receive expected notification before deadline")
+}
+
+// cleanupAPIKeyByName looks up an API key by name and attempts to revoke it. Non-204 results are logged but ignored.
+func cleanupAPIKeyByName(t *testing.T, baseURL, userToken, name string) {
+	t.Helper()
+	keys := listAPIKeys(t, baseURL, userToken)
+	var id string
+	for _, k := range keys {
+		if k["name"] == name {
+			if s, ok := k["id"].(string); ok {
+				id = s
+				break
+			}
+		}
+	}
+	if id == "" {
+		t.Logf("cleanup: key with name %q not found", name)
+		return
+	}
+	status, body := httpJSON(t, http.MethodDelete, strings.TrimRight(baseURL, "/")+"/api/v1/auth/apikeys/"+id, nil, map[string]string{"Authorization": "Bearer " + userToken}, nil)
+	if status != http.StatusNoContent {
+		t.Logf("cleanup: revoke key id=%s returned %d body=%s (route may not be enabled)", id, status, string(body))
+	}
+}
+
+func TestIntegration_APIKey_Exchange_InvalidKey_Unauthorized(t *testing.T) {
+	if os.Getenv("TRAZR_IT") != "1" {
+		t.Skip("set TRAZR_IT=1 to run integration tests against live server")
+	}
+	base, _, _ := readTestCreds(t)
+	var out map[string]any
+	code, body := httpJSON(t, http.MethodPost, strings.TrimRight(base, "/")+"/api/v1/auth/apikeys/exchange", nil, map[string]string{"X-API-Key": "invalid-api-key-value"}, &out)
+	if code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for invalid api key exchange, got %d body=%s", code, string(body))
+	}
+}
+
+func TestIntegration_APIKey_Enqueue_MissingScope_Forbidden(t *testing.T) {
+	if os.Getenv("TRAZR_REQUIRE_NOTIF_SCOPE") != "1" {
+		t.Skip("set TRAZR_REQUIRE_NOTIF_SCOPE=1 when server enforces notifications:write scope")
+	}
+	if os.Getenv("TRAZR_IT") != "1" {
+		t.Skip("set TRAZR_IT=1 to run integration tests against live server")
+	}
+	base, user, pass := readTestCreds(t)
+	userTok := tokenFromLogin(t, base, user, pass)
+	// Create API key WITHOUT notifications:write scope
+	t.Helper()
+	name := fmt.Sprintf("it-key-noscope-%d", time.Now().UnixNano())
+	var resp struct {
+		Key string `json:"key"`
+	}
+	code, body := httpJSON(t, http.MethodPost, strings.TrimRight(base, "/")+"/api/v1/auth/apikeys", map[string]any{
+		"name":   name,
+		"scopes": []string{"logs:write"},
+	}, map[string]string{"Authorization": "Bearer " + userTok}, &resp)
+	if code != http.StatusCreated || resp.Key == "" {
+		t.Fatalf("create noscope apikey failed: %d %s", code, string(body))
+	}
+	m2m := exchangeAPIKey(t, base, resp.Key)
+	// Attempt enqueue; expect 403 once enforced
+	var enqResp struct {
+		ID string `json:"id"`
+	}
+	code, body = httpJSON(t, http.MethodPost, strings.TrimRight(base, "/")+"/api/v1/user/notifications", map[string]any{
+		"topic": "alerts",
+		"data":  map[string]any{"title": "hi", "body": "noscope"},
+	}, map[string]string{"Authorization": "Bearer " + m2m}, &enqResp)
+	if code != http.StatusForbidden {
+		t.Fatalf("expected 403 without notifications:write, got %d body=%s", code, string(body))
+	}
+	if os.Getenv("TRAZR_IT_CLEANUP") == "1" {
+		cleanupAPIKeyByName(t, base, userTok, name)
+	}
+}
+
+func httpJSON(t *testing.T, method, url string, body any, headers map[string]string, out any) (int, []byte) {
+	t.Helper()
+	var reader *strings.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		reader = strings.NewReader(string(b))
+	} else {
+		reader = strings.NewReader("")
+	}
+	req, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	defer resp.Body.Close()
+	data, _ := ioReadAllLimit(resp.Body, 1<<20)
+	if out != nil {
+		_ = json.Unmarshal(data, out)
+	}
+	return resp.StatusCode, data
+}
+
+func ioReadAllLimit(r io.Reader, limit int64) ([]byte, error) {
+	var b strings.Builder
+	buf := make([]byte, 4096)
+	var n int
+	var err error
+	var total int64
+	for {
+		n, err = r.Read(buf)
+		if n > 0 {
+			if total+int64(n) > limit {
+				return []byte(b.String()), errors.New("limit exceeded")
+			}
+			b.Write(buf[:n])
+			total += int64(n)
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return []byte(b.String()), nil
+			}
+			return []byte(b.String()), err
+		}
+	}
+}
+
+// tokenFromLogin performs username/password login and returns token.
+func tokenFromLogin(t *testing.T, baseURL, username, password string) string {
+	t.Helper()
+	var resp struct {
+		Token string `json:"token"`
+	}
+	code, data := httpJSON(t, http.MethodPost, strings.TrimRight(baseURL, "/")+"/api/v1/auth/login", map[string]string{
+		"username": username,
+		"password": password,
+	}, nil, &resp)
+	if code < 200 || code >= 300 || resp.Token == "" {
+		t.Fatalf("login failed: code=%d body=%s", code, string(data))
+	}
+	return resp.Token
+}
+
+func wsURLFromHTTP(httpURL string) string {
+	u, _ := url.Parse(httpURL)
+	u.Scheme = map[string]string{"http": "ws", "https": "wss"}[u.Scheme]
+	return u.String()
+}
+
+func TestIntegration_LoginRenew(t *testing.T) {
+	if os.Getenv("TRAZR_IT") != "1" {
+		t.Skip("set TRAZR_IT=1 to run integration tests against live server")
+	}
+	base, user, pass := readTestCreds(t)
+	// Health
+	code, _ := httpJSON(t, http.MethodGet, strings.TrimRight(base, "/")+"/api/v1/health", nil, nil, nil)
+	if code != 200 {
+		t.Fatalf("health check failed: %d", code)
+	}
+	// Login
+	tok := tokenFromLogin(t, base, user, pass)
+	// Renew
+	var renewResp struct {
+		Token string `json:"token"`
+	}
+	code, data := httpJSON(t, http.MethodPost, strings.TrimRight(base, "/")+"/api/v1/auth/renew", nil, map[string]string{"Authorization": "Bearer " + tok}, &renewResp)
+	if code != 200 || renewResp.Token == "" {
+		t.Fatalf("renew failed: code=%d body=%s", code, string(data))
+	}
+}
+
+func TestIntegration_Notifications_WS_EndToEnd(t *testing.T) {
+	if os.Getenv("TRAZR_IT") != "1" {
+		t.Skip("set TRAZR_IT=1 to run integration tests against live server")
+	}
+	base, user, pass := readTestCreds(t)
+	tok := tokenFromLogin(t, base, user, pass)
+
+	// Create an API key with notifications:write and exchange to JWT for enqueue (scope now enforced)
+	plaintext, keyName := createAPIKey(t, base, tok)
+	m2mTok := exchangeAPIKey(t, base, plaintext)
+
+	// Connect WS
+	wsBase := wsURLFromHTTP(strings.TrimRight(base, "/"))
+	wsURL := fmt.Sprintf("%s/api/v1/stream/user/notifications?topics=alerts&wait_for_established=true&ping_interval=5", wsBase)
+	dialer := websocket.Dialer{}
+	head := http.Header{}
+	head.Set("Authorization", "Bearer "+tok)
+	c, _, err := dialer.Dial(wsURL, head)
+	if err != nil {
+		t.Fatalf("ws dial: %v", err)
+	}
+	defer c.Close()
+	_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+
+	// Expect ready
+	if _, msg, err := c.ReadMessage(); err != nil {
+		t.Fatalf("ws read ready: %v", err)
+	} else {
+		var m map[string]any
+		_ = json.Unmarshal(msg, &m)
+		if m["type"] != "ready" {
+			t.Fatalf("expected ready, got %s", string(msg))
+		}
+	}
+
+	// Enqueue using API key JWT (has notifications:write)
+	var enqResp struct {
+		ID string `json:"id"`
+	}
+	code, data := httpJSON(t, http.MethodPost, strings.TrimRight(base, "/")+"/api/v1/user/notifications", map[string]any{
+		"topic": "alerts",
+		"data":  map[string]any{"title": "Hello", "body": "from integration test"},
+	}, map[string]string{"Authorization": "Bearer " + m2mTok}, &enqResp)
+	if code != 200 || enqResp.ID == "" {
+		t.Fatalf("enqueue failed: code=%d body=%s", code, string(data))
+	}
+
+	// Receive notification matching the enqueued payload
+	deadline := time.Now().Add(10 * time.Second)
+	match := regexp.MustCompile(`"type"\s*:\s*"notification"`)
+	for time.Now().Before(deadline) {
+		_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+		_, msg, err := c.ReadMessage()
+		if err != nil {
+			t.Fatalf("ws read notif: %v", err)
+		}
+		if match.Match(msg) && strings.Contains(string(msg), "\"topic\":\"alerts\"") {
+			// optional cleanup of the API key used for enqueue
+			if os.Getenv("TRAZR_IT_CLEANUP") == "1" {
+				cleanupAPIKeyByName(t, base, tok, keyName)
+			}
+			return // success
+		}
+	}
+	t.Fatalf("did not receive expected notification before deadline")
+}

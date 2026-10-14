@@ -1,0 +1,48 @@
+# Compiled binaries
+trazr-otel/trazr-otel
+trazr-otel/builder
+trazr-otel/test-build
+trazr-otel/trazrexporter
+trazr-otel-dev/
+trazr-otel-new
+trazr-mcp/trazr-mcp
+trazr-mcp/mcpserver
+trazr-mcp/trazr-mcp-darwin-arm64
+trazrexporter/trazrexporter.test
+trazrexporter/trazrexporter
+trazrextension/trazrextension
+trazrprocessor/trazrprocessor
+pkg/repository/trazr-otel
+pkg/trazr-otel
+ocb
+*.test
+
+# Vendor directories
+/trazrexporter/vendor/*
+trazr-otel/vendor/*
+trazrextension/vendor/*
+trazr-mcp/vendor/*
+pkg/repository/vendor/*
+trazrprocessor/vendor/*
+
+# Dependencies
+node_modules/*
+
+# OS files
+.DS_Store
+
+# Misc
+plan.md
+*.log
+*.out
+logs/
+
+# Local service environments and Python caches
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.local/

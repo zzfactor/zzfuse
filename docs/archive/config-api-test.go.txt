@@ -1,0 +1,401 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"testing"
+	"time"
+)
+
+const (
+	// Default API base URL - can be overridden with TRAZR_BASE_URL env var
+	defaultBaseURL = "http://localhost:18888"
+	
+	// Test credentials - these should be set as environment variables
+	testUsername = "testuser"
+	testPassword = "testpass"
+)
+
+// TestClient handles authentication and API requests
+type TestClient struct {
+	baseURL string
+	token   string
+	client  *http.Client
+}
+
+// NewTestClient creates a new test client with authentication
+func NewTestClient() (*TestClient, error) {
+	baseURL := os.Getenv("TRAZR_BASE_URL")
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
+
+	client := &TestClient{
+		baseURL: baseURL,
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+	}
+
+	// Get auth token using test credentials
+	if err := client.authenticate(); err != nil {
+		return nil, fmt.Errorf("authentication failed: %w", err)
+	}
+
+	return client, nil
+}
+
+// authenticate gets an auth token using test credentials
+func (c *TestClient) authenticate() error {
+	// Check if token is provided via environment variable first
+	if token := os.Getenv("TRAZR_AUTH_TOKEN"); token != "" {
+		c.token = token
+		return nil
+	}
+
+	// Otherwise, authenticate using username/password
+	authPayload := map[string]string{
+		"username": testUsername,
+		"password": testPassword,
+	}
+
+	payloadBytes, err := json.Marshal(authPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auth payload: %w", err)
+	}
+
+	resp, err := c.client.Post(c.baseURL+"/auth/login", "application/json", bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return fmt.Errorf("auth request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("auth failed with status %d", resp.StatusCode)
+	}
+
+	var authResp struct {
+		Token string `json:"token"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
+		return fmt.Errorf("failed to decode auth response: %w", err)
+	}
+
+	c.token = authResp.Token
+	return nil
+}
+
+// makeRequest makes an authenticated HTTP request
+func (c *TestClient) makeRequest(method, path string, body interface{}) (*http.Response, error) {
+	var reqBody io.Reader
+	if body != nil {
+		bodyBytes, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		reqBody = bytes.NewBuffer(bodyBytes)
+	}
+
+	req, err := http.NewRequest(method, c.baseURL+path, reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	return c.client.Do(req)
+}
+
+// Test data for different configuration types
+var (
+	testSchemaConfig = map[string]interface{}{
+		"name":        "test-schema-integration",
+		"description": "Integration test schema configuration",
+		"enabled":     true,
+		"priority":    1,
+		"metadata": map[string]interface{}{
+			"version":     "1.0",
+			"environment": "test",
+		},
+		"config": map[string]interface{}{
+			"database_schema": "test_otel",
+			"routing": map[string]interface{}{
+				"logs":    "test_otel_logs",
+				"traces":  "test_otel_traces",
+				"metrics": "test_otel_metrics",
+			},
+		},
+	}
+
+	testEmbeddingConfig = map[string]interface{}{
+		"name":        "test-embedding-integration",
+		"description": "Integration test embedding configuration",
+		"enabled":     true,
+		"priority":    1,
+		"metadata": map[string]interface{}{
+			"provider_type": "openai",
+			"model_version": "v1",
+		},
+		"config": map[string]interface{}{
+			"provider":           "openai",
+			"model":              "text-embedding-ada-002",
+			"dimension":          1536,
+			"max_context_length": 8191,
+			"rate_limit":         1000,
+			"timeout":            30,
+		},
+	}
+)
+
+// TestConfigAPIHealthCheck tests the API health endpoint
+func TestConfigAPIHealthCheck(t *testing.T) {
+	client, err := NewTestClient()
+	if err != nil {
+		t.Skipf("Skipping integration test - failed to create client: %v", err)
+	}
+
+	resp, err := client.makeRequest("GET", "/health", nil)
+	if err != nil {
+		t.Fatalf("Health check request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+
+	t.Log("✓ API health check passed")
+}
+
+// TestConfigAPIStatistics tests the configuration statistics endpoint
+func TestConfigAPIStatistics(t *testing.T) {
+	client, err := NewTestClient()
+	if err != nil {
+		t.Skipf("Skipping integration test - failed to create client: %v", err)
+	}
+
+	resp, err := client.makeRequest("GET", "/api/v1/config/statistics", nil)
+	if err != nil {
+		t.Fatalf("Statistics request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+
+	var stats map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		t.Fatalf("Failed to decode statistics response: %v", err)
+	}
+
+	// Verify expected fields are present
+	expectedFields := []string{"total_configurations", "schemas", "processors", "embeddings", "templates", "vectorstores"}
+	for _, field := range expectedFields {
+		if _, exists := stats[field]; !exists {
+			t.Errorf("Missing expected field in statistics: %s", field)
+		}
+	}
+
+	t.Log("✓ Configuration statistics endpoint working")
+}
+
+// TestConfigAPIListSchemas tests listing schema configurations
+func TestConfigAPIListSchemas(t *testing.T) {
+	client, err := NewTestClient()
+	if err != nil {
+		t.Skipf("Skipping integration test - failed to create client: %v", err)
+	}
+
+	resp, err := client.makeRequest("GET", "/api/v1/config/schemas", nil)
+	if err != nil {
+		t.Fatalf("List schemas request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+
+	var response map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode list response: %v", err)
+	}
+
+	// Verify response structure
+	if _, exists := response["data"]; !exists {
+		t.Error("Missing 'data' field in list response")
+	}
+	if _, exists := response["pagination"]; !exists {
+		t.Error("Missing 'pagination' field in list response")
+	}
+
+	t.Log("✓ Schema configurations list endpoint working")
+}
+
+// TestConfigAPICreateSchema tests creating a schema configuration
+func TestConfigAPICreateSchema(t *testing.T) {
+	client, err := NewTestClient()
+	if err != nil {
+		t.Skipf("Skipping integration test - failed to create client: %v", err)
+	}
+
+	resp, err := client.makeRequest("POST", "/api/v1/config/schemas", testSchemaConfig)
+	if err != nil {
+		t.Fatalf("Create schema request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Accept both 201 (created) and 409 (conflict if already exists)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(resp.Body)
+		t.Errorf("Expected status 201 or 409, got %d. Response: %s", resp.StatusCode, string(body))
+		return
+	}
+
+	if resp.StatusCode == http.StatusCreated {
+		var response map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			t.Fatalf("Failed to decode create response: %v", err)
+		}
+
+		// Verify response structure
+		expectedFields := []string{"id", "name", "enabled", "created_at", "updated_at"}
+		for _, field := range expectedFields {
+			if _, exists := response[field]; !exists {
+				t.Errorf("Missing expected field in create response: %s", field)
+			}
+		}
+
+		t.Log("✓ Schema configuration created successfully")
+	} else {
+		t.Log("✓ Schema configuration already exists (expected for repeated tests)")
+	}
+}
+
+// TestConfigAPIListWithFilters tests listing configurations with query parameters
+func TestConfigAPIListWithFilters(t *testing.T) {
+	client, err := NewTestClient()
+	if err != nil {
+		t.Skipf("Skipping integration test - failed to create client: %v", err)
+	}
+
+	testCases := []struct {
+		name        string
+		queryParams string
+	}{
+		{"FilterByEnabled", "?enabled=true"},
+		{"FilterByPriority", "?priority=1"},
+		{"WithLimit", "?limit=5"},
+		{"SearchByName", "?search=test"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := client.makeRequest("GET", "/api/v1/config/schemas"+tc.queryParams, nil)
+			if err != nil {
+				t.Fatalf("List with filters request failed: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("Expected status 200, got %d", resp.StatusCode)
+			}
+
+			var response map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+				t.Fatalf("Failed to decode filtered list response: %v", err)
+			}
+
+			// Verify response structure
+			if _, exists := response["data"]; !exists {
+				t.Error("Missing 'data' field in filtered list response")
+			}
+		})
+	}
+
+	t.Log("✓ Configuration filtering working")
+}
+
+// TestConfigAPIErrorHandling tests various error scenarios
+func TestConfigAPIErrorHandling(t *testing.T) {
+	client, err := NewTestClient()
+	if err != nil {
+		t.Skipf("Skipping integration test - failed to create client: %v", err)
+	}
+
+	testCases := []struct {
+		name           string
+		method         string
+		path           string
+		payload        interface{}
+		expectedStatus int
+	}{
+		{"InvalidConfigType", "GET", "/api/v1/config/invalid", nil, http.StatusBadRequest},
+		{"InvalidJSON", "POST", "/api/v1/config/schemas", "invalid-json", http.StatusBadRequest},
+		{"NonExistentConfig", "GET", "/api/v1/config/schemas/99999", nil, http.StatusNotFound},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var resp *http.Response
+			var err error
+
+			if tc.payload == "invalid-json" {
+				// Send invalid JSON directly
+				req, _ := http.NewRequest(tc.method, client.baseURL+tc.path, bytes.NewBufferString("invalid-json"))
+				req.Header.Set("Authorization", "Bearer "+client.token)
+				req.Header.Set("Content-Type", "application/json")
+				resp, err = client.client.Do(req)
+			} else {
+				resp, err = client.makeRequest(tc.method, tc.path, tc.payload)
+			}
+
+			if err != nil {
+				t.Fatalf("Error handling test request failed: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tc.expectedStatus {
+				body, _ := io.ReadAll(resp.Body)
+				t.Errorf("Expected status %d, got %d. Response: %s", tc.expectedStatus, resp.StatusCode, string(body))
+			}
+		})
+	}
+
+	t.Log("✓ Error handling working correctly")
+}
+
+// TestConfigAPIAllTypes tests basic operations for all configuration types
+func TestConfigAPIAllTypes(t *testing.T) {
+	client, err := NewTestClient()
+	if err != nil {
+		t.Skipf("Skipping integration test - failed to create client: %v", err)
+	}
+
+	configTypes := []string{"schemas", "processors", "embeddings", "templates", "vectorstores"}
+
+	for _, configType := range configTypes {
+		t.Run(fmt.Sprintf("List%s", configType), func(t *testing.T) {
+			resp, err := client.makeRequest("GET", fmt.Sprintf("/api/v1/config/%s", configType), nil)
+			if err != nil {
+				t.Fatalf("List %s request failed: %v", configType, err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("Expected status 200 for %s, got %d", configType, resp.StatusCode)
+			}
+		})
+	}
+
+	t.Log("✓ All configuration types accessible")
+}
