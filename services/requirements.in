@@ -1,0 +1,17 @@
+# Direct dependencies. Regenerate requirements.txt with:
+# uv pip compile requirements.in --python-version 3.11 --universal --index-strategy unsafe-best-match --emit-index-url -o requirements.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+fastapi==0.143.0
+uvicorn==0.54.0
+uvicorn-worker==0.4.0
+gunicorn==26.2.0
+chromadb==1.5.9
+pydantic==2.14.1
+httpx==0.28.1
+python-dotenv==1.2.4
+prometheus-fastapi-instrumentator==8.1.0
+prometheus-client==0.26.0
+sentence-transformers==6.1.0
+torch==2.14.1 ; sys_platform != "linux"
+torch==2.14.1+cpu ; sys_platform == "linux"
+python-multipart==0.0.32
