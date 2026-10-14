@@ -10,6 +10,12 @@ updates:
       - /trazr-mcp
     schedule:
       interval: weekly
+    # Keep base runtimes aligned with the supported host/lockfile toolchains.
+    ignore:
+      - dependency-name: node
+        versions: ['>=25']
+      - dependency-name: python
+        versions: ['>=3.12']
     groups:
       container-images:
         patterns: ['*']

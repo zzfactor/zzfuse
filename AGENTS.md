@@ -1,6 +1,6 @@
 # zzfuse development
 
-zzfuse is the canonical project name; the intended GitHub repository is `zzfactor/zzfuse`. Existing Trazr Go imports, component names, environment variables, and binaries are compatibility surfaces.
+zzfuse is the canonical project name; its GitHub repository is `zzfactor/zzfuse`. Existing Trazr Go imports, component names, environment variables, and binaries are compatibility surfaces.
 
 Use the project skill at [.agents/skills/zzfuse-development/SKILL.md](.agents/skills/zzfuse-development/SKILL.md) for development, dependency upgrades, and validation. Read only the maintained docs relevant to the task; historical reports under `docs/archive/` are not current specifications or test evidence.
 
@@ -19,6 +19,8 @@ Use the project skill at [.agents/skills/zzfuse-development/SKILL.md](.agents/sk
 There is no root Go module/workspace. Use `make go-check` or module-local commands, with the Go version declared in the manifests. Frontend checks: `make frontend-check`. Python checks: `make python-test`. Link checks: `make docs-check`.
 
 External-service integration tests require explicit configuration and opt-in. Default unit suites must not need private hosts, credentials, model downloads, or a production database. Preserve existing user edits and resource ownership when refactoring.
+
+Maintain Python direct pins and the universal lock together using the command in `services/requirements.in`. Preserve platform and Python-version conditions; an environment-specific regeneration breaks the supported toolchains.
 
 For public publication, retain the original private history locally and use a fresh audited source snapshot. Never push the original private history or ignored `.local/` credentials/backups to the public repository.
 
