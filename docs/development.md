@@ -80,4 +80,6 @@ The metric storage regression in `pkg/repository` uses `TRAZR_IT=1` and `TEST_ME
 
 Python direct pins live in `services/requirements.in`; its header gives the universal-lock command. Frontend updates must keep the lockfile and pass `npm ci`, lint, typecheck, and build. Ignored vendor trees are local artifacts; repository checks use `-mod=readonly` so stale vendor contents cannot hide updates.
 
+Dependabot's frontend version updates allow minor and patch releases. Major table/tooling migrations require separate compatibility checks: its initial TypeScript 7 proposal failed the current Next.js lint tooling. Node types remain aligned with the Node 24 runtime. Python version PRs are disabled because the standard updater removed the universal lock's platform and Python-version conditions; update direct pins and regenerate with the documented `uv` command instead. Security suggestions still require supported-platform validation and proper lock regeneration.
+
 Format changed source and test changed behavior. Pull requests should report exact validation and integration limits.

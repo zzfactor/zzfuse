@@ -36,6 +36,12 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    # Major tooling/runtime/table migrations require their own compatibility work.
+    allow:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
     groups:
       frontend-dependencies:
         patterns: ['*']
@@ -43,6 +49,9 @@ updates:
     directory: /services
     schedule:
       interval: weekly
+    # Regenerate with the documented uv universal/Python 3.11 command. The
+    # standard updater drops platform/Requires-Python conditions from this lock.
+    open-pull-requests-limit: 0
     groups:
       python-dependencies:
         patterns: ['*']
