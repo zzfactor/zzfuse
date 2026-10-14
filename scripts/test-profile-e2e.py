@@ -3,8 +3,6 @@
 
 import argparse
 import base64
-import hashlib
-import hmac
 import json
 import os
 from pathlib import Path
@@ -62,18 +60,6 @@ def free_port():
         return sock.getsockname()[1]
 
 
-def token(secret):
-    def encode(value):
-        return base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=")
-    now = int(time.time())
-    payload = b".".join([encode({"alg": "HS256", "typ": "JWT"}), encode({
-        "user_id": 1, "email": "profile-test@example.invalid", "schemas": ["otel"],
-        "roles": ["user"], "iat": now, "nbf": now, "exp": now + 300,
-    })])
-    signature = hmac.new(secret.encode(), payload, hashlib.sha256).digest()
-    return (payload + b"." + base64.urlsafe_b64encode(signature).rstrip(b"=")).decode()
-
-
 def request(url, *, data=None, headers=None):
     try:
         with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers or {}),
@@ -125,11 +111,12 @@ def main():
     expected = json.loads((fixture_dir / "current-profiles.json").read_text())
     legacy = (fixture_dir / "profiles-0.135/legacy-0.135-profile-row.pb").read_bytes()
     name = "zzfuse-profile-e2e-" + secrets.token_hex(6)
-    password, jwt_secret = secrets.token_hex(24), secrets.token_hex(32)
+    password, jwt_secret, ingestion_token, signing_key, user_password = [secrets.token_hex(32) for _ in range(5)]
     process = None
     created = False
     with tempfile.TemporaryDirectory(prefix="zzfuse-profile-e2e-") as temporary:
         directory = Path(temporary)
+        (directory / "queue").mkdir()
         log_path = directory / "collector.log"
         try:
             run("docker", "run", "--detach", "--rm", "--name", name,
@@ -170,21 +157,37 @@ def main():
             config.write_text(f"""extensions:
   trazr:
     endpoint: 127.0.0.1:{api_port}
+  zzfuse_auth:
+    signing_key: ${{env:TRAZR_INGESTION_SIGNING_KEY}}
+    credentials:
+      default:
+        token: ${{env:TRAZR_INGESTION_TOKEN}}
+        schema: otel
+        epoch: 1
+  file_storage/ingestion:
+    directory: {directory / "queue"}
+    create_directory: true
+    directory_permissions: "0700"
+    fsync: true
 receivers:
   otlp:
     protocols:
       http:
         endpoint: 127.0.0.1:{otlp_port}
+        auth:
+          authenticator: zzfuse_auth
 exporters:
   trazr:
+    authenticator: zzfuse_auth
     sending_queue:
       enabled: {queue_enabled}
       queue_size: 100
       num_consumers: 1
+      storage: file_storage/ingestion
     retry_on_failure:
       enabled: false
 service:
-  extensions: [trazr]
+  extensions: [trazr, zzfuse_auth, file_storage/ingestion]
   telemetry:
     logs:
       level: warn
@@ -200,9 +203,9 @@ service:
             env.update(TRAZR_DB_HOST="127.0.0.1", TRAZR_DB_PORT=db_port,
                        TRAZR_DB_USER="postgres", TRAZR_DB_PASSWORD=password,
                        TRAZR_DB_NAME="zzfuse_profile_e2e", TRAZR_DB_SSL_MODE="disable",
-                       TRAZR_JWT_SECRET=jwt_secret, EVENT_BUS_TYPE="in-memory")
+                       TRAZR_JWT_SECRET=jwt_secret, TRAZR_INGESTION_TOKEN=ingestion_token,
+                       TRAZR_INGESTION_SIGNING_KEY=signing_key, EVENT_BUS_TYPE="in-memory")
             api = f"http://127.0.0.1:{api_port}/api/v1"
-            auth = {"Authorization": "Bearer " + token(jwt_secret)}
             # Begin pagination at epoch/ID zero to include fixed historical fixtures.
             profiles_url = api + "/profiles?schema=otel&cursor=MHww&direction=asc&limit=100"
 
@@ -218,8 +221,16 @@ service:
 
                 process = start()
                 assert request(profiles_url)[0] == 401, "Profiles query must require authentication"
+                account = {"username": "profile-test", "email": "profile-test@example.test", "password": user_password}
+                status, body = request(api + "/auth/register", data=json.dumps(account).encode(),
+                                       headers={"Content-Type": "application/json"})
+                assert status == 201, "Real profile test account registration failed"
+                status, body = request(api + "/auth/login", data=json.dumps(account).encode(),
+                                       headers={"Content-Type": "application/json"})
+                assert status == 200, "Real profile test account login failed"
+                auth = {"Authorization": "Bearer " + json.loads(body)["token"]}
                 headers = {"Content-Type": "application/x-protobuf",
-                           "OTLP-Profiles-Development-Version": "1"}
+                           "OTLP-Profiles-Development-Version": "1", "Authorization": "Bearer " + ingestion_token}
                 otlp = f"http://127.0.0.1:{otlp_port}/v1development/profiles"
                 wait_for(lambda: request(otlp, data=b"", headers=headers)[0] == 200,
                          "OTLP profile readiness", process)
@@ -318,7 +329,10 @@ service:
             if isinstance(error, subprocess.CalledProcessError):
                 print(error.stderr)
             if log_path.exists():
-                print(log_path.read_text()[-12000:])
+                diagnostic = log_path.read_text()[-12000:]
+                for secret in (password, jwt_secret, ingestion_token, signing_key, user_password):
+                    diagnostic = diagnostic.replace(secret, "[test-secret]")
+                print(diagnostic)
             raise
         finally:
             failed = sys.exc_info()[0] is not None

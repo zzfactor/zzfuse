@@ -76,10 +76,8 @@ func TestRegisterUser(t *testing.T) {
 				mock.ExpectQuery("SELECT EXISTS\\(SELECT 1 FROM admin.auth_users WHERE LOWER\\(username\\)=LOWER\\(\\$1\\) OR LOWER\\(email\\)=LOWER\\(\\$2\\)\\)").
 					WithArgs("user@example.com", "user@example.com").
 					WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-				mock.ExpectExec(`ALTER TABLE admin.auth_users ADD COLUMN IF NOT EXISTS username`).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(`CREATE UNIQUE INDEX IF NOT EXISTS auth_users_username_unique`).
-					WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectBegin()
+				mock.ExpectExec(`SELECT pg_advisory_xact_lock`).WithArgs(authMutationLock).WillReturnResult(sqlmock.NewResult(0, 0))
 				mock.ExpectQuery("INSERT INTO admin.auth_users").
 					WithArgs(
 						"user@example.com", // username
@@ -96,6 +94,10 @@ func TestRegisterUser(t *testing.T) {
 						sqlmock.AnyArg(),   // metadata
 					).
 					WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(1, time.Now()))
+				mock.ExpectQuery(`SELECT COUNT\(\*\) FROM admin.auth_users`).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+				mock.ExpectExec(`INSERT INTO admin.auth_user_roles`).WithArgs(int64(1)).WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectCommit()
+
 			},
 			wantErr: false,
 		},
@@ -143,9 +145,9 @@ func TestLogin(t *testing.T) {
 			email:    "user@example.com",
 			password: "password123",
 			setup: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery(`SELECT id, password_hash, email, COALESCE\(username,''\) FROM admin.auth_users WHERE LOWER\(username\)=\$1 OR LOWER\(email\)=\$1`).
+				mock.ExpectQuery(`SELECT id, password_hash, email, COALESCE\(username,''\), auth_version, disabled FROM admin.auth_users WHERE LOWER\(username\)=\$1 OR LOWER\(email\)=\$1`).
 					WithArgs("user@example.com").
-					WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash", "email", "username"}).AddRow(1, hash, "user@example.com", "user@example.com"))
+					WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash", "email", "username", "auth_version", "disabled"}).AddRow(1, hash, "user@example.com", "user@example.com", 1, false))
 				mock.ExpectQuery(`SELECT COALESCE\(MAX\(attempted_at\), 'epoch'::timestamptz\), COUNT\(\*\) FROM admin.auth_login_attempts`).
 					WithArgs(int64(1), sqlmock.AnyArg()).
 					WillReturnRows(sqlmock.NewRows([]string{"last_failed", "count"}).AddRow(time.Now().Add(-time.Hour), 0))
@@ -155,6 +157,9 @@ func TestLogin(t *testing.T) {
 				mock.ExpectExec(`INSERT INTO admin.auth_login_attempts`).
 					WithArgs(int64(1), sqlmock.AnyArg(), true).
 					WillReturnResult(sqlmock.NewResult(1, 1))
+				mock.ExpectExec(`INSERT INTO admin.auth_audit_logs`).WillReturnResult(sqlmock.NewResult(0, 1))
+				expectSessionState(mock, 1, 1, false, []string{"user"}, []string{"tenant_a"})
+
 			},
 			wantErr: false,
 		},
@@ -163,9 +168,9 @@ func TestLogin(t *testing.T) {
 			email:    "user@example.com",
 			password: "wrongpass",
 			setup: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery(`SELECT id, password_hash, email, COALESCE\(username,''\) FROM admin.auth_users WHERE LOWER\(username\)=\$1 OR LOWER\(email\)=\$1`).
+				mock.ExpectQuery(`SELECT id, password_hash, email, COALESCE\(username,''\), auth_version, disabled FROM admin.auth_users WHERE LOWER\(username\)=\$1 OR LOWER\(email\)=\$1`).
 					WithArgs("user@example.com").
-					WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash", "email", "username"}).AddRow(1, hash, "user@example.com", "user@example.com"))
+					WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash", "email", "username", "auth_version", "disabled"}).AddRow(1, hash, "user@example.com", "user@example.com", 1, false))
 				mock.ExpectQuery(`SELECT COALESCE\(MAX\(attempted_at\), 'epoch'::timestamptz\), COUNT\(\*\) FROM admin.auth_login_attempts`).
 					WithArgs(int64(1), sqlmock.AnyArg()).
 					WillReturnRows(sqlmock.NewRows([]string{"last_failed", "count"}).AddRow(time.Now().Add(-time.Hour), 0))
@@ -180,7 +185,7 @@ func TestLogin(t *testing.T) {
 			email:    "notfound@example.com",
 			password: "password123",
 			setup: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery(`SELECT id, password_hash, email, COALESCE\(username,''\) FROM admin.auth_users WHERE LOWER\(username\)=\$1 OR LOWER\(email\)=\$1`).
+				mock.ExpectQuery(`SELECT id, password_hash, email, COALESCE\(username,''\), auth_version, disabled FROM admin.auth_users WHERE LOWER\(username\)=\$1 OR LOWER\(email\)=\$1`).
 					WithArgs("notfound@example.com").
 					WillReturnError(sql.ErrNoRows)
 			},
@@ -231,13 +236,13 @@ func TestLogin_Errors(t *testing.T) {
 		{"empty email", "", "pw", func() {}, "username/email and password required"},
 		{"empty password", "user@example.com", "", func() {}, "username/email and password required"},
 		{"user not found", "notfound@example.com", "pw", func() {
-			mock.ExpectQuery("SELECT id, password_hash, email, COALESCE\\(username,''\\) FROM admin.auth_users WHERE LOWER\\(username\\)=\\$1 OR LOWER\\(email\\)=\\$1").WithArgs("notfound@example.com").WillReturnError(sql.ErrNoRows)
+			mock.ExpectQuery("SELECT id, password_hash, email, COALESCE\\(username,''\\), auth_version, disabled FROM admin.auth_users WHERE LOWER\\(username\\)=\\$1 OR LOWER\\(email\\)=\\$1").WithArgs("notfound@example.com").WillReturnError(sql.ErrNoRows)
 		}, "invalid username/email or password"},
 		{"db error", "dberr@example.com", "pw", func() {
-			mock.ExpectQuery("SELECT id, password_hash, email, COALESCE\\(username,''\\) FROM admin.auth_users WHERE LOWER\\(username\\)=\\$1 OR LOWER\\(email\\)=\\$1").WithArgs("dberr@example.com").WillReturnError(errors.New("db fail"))
+			mock.ExpectQuery("SELECT id, password_hash, email, COALESCE\\(username,''\\), auth_version, disabled FROM admin.auth_users WHERE LOWER\\(username\\)=\\$1 OR LOWER\\(email\\)=\\$1").WithArgs("dberr@example.com").WillReturnError(errors.New("db fail"))
 		}, "query user: db fail"},
 		{"wrong password", "user@example.com", "wrongpw", func() {
-			mock.ExpectQuery("SELECT id, password_hash, email, COALESCE\\(username,''\\) FROM admin.auth_users WHERE LOWER\\(username\\)=\\$1 OR LOWER\\(email\\)=\\$1").WithArgs("user@example.com").WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash", "email", "username"}).AddRow(1, "$2a$10$invalidhash", "user@example.com", "user@example.com"))
+			mock.ExpectQuery("SELECT id, password_hash, email, COALESCE\\(username,''\\), auth_version, disabled FROM admin.auth_users WHERE LOWER\\(username\\)=\\$1 OR LOWER\\(email\\)=\\$1").WithArgs("user@example.com").WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash", "email", "username", "auth_version", "disabled"}).AddRow(1, "$2a$10$invalidhash", "user@example.com", "user@example.com", 1, false))
 			// lockout ok
 			mock.ExpectQuery(`SELECT COALESCE\(MAX\(attempted_at\), 'epoch'::timestamptz\), COUNT\(\*\) FROM admin.auth_login_attempts`).
 				WithArgs(int64(1), sqlmock.AnyArg()).

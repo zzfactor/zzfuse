@@ -14,7 +14,7 @@ Lifecycle statistics count jobs when they start/finish. Batch statistics measure
 
 Schema startup creates the service worker manager while leaving jobs stopped. Schema/all-worker start APIs load configured workers lazily; on-demand execution reloads signal filters before starting. Configured templates are loaded and compiled before replacement; body and generic context fields feed the fetch/render plan. Missing or invalid templates fail reload while retaining existing workers. Worker lifecycle operations are serialized separately from schema pool access. Shutdown rejects new operations, drains accepted operations, stops workers, and then closes their providers.
 
-Current on-demand time bounds and requested batch sizes are not applied to worker fetches. The factory uses a batch size of 100. This limitation is tracked in [maintenance tasks](../TASKS.md).
+On-demand time bounds are applied as `[start, stop)` to physical signal timestamps. Requested batch sizes override the configured/default size of 100, with a maximum of 10,000. Durable leases and fenced PGVector/receipt commits coordinate concurrent workers and crash retries. See the [current worker contract](../pkg/repository/workers.md), including same-pool PGVector and `template_plus`/external-provider limits.
 
 pgvector writes and exact-content lookup bind the raw UTF-8 SHA256 hash computed in Go, preserving compatibility with existing hashes while avoiding the legacy SQL helper. Bound vector parameters retain full float32 precision. The focused integration `TestPGVectorCurrentDDLWriteAndBaseline` runs with `TRAZR_IT=1`, `TEST_PGVECTOR_WRITE_DSN`, and `-tags integration` against a disposable project database.
 

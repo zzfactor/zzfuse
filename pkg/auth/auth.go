@@ -39,7 +39,7 @@ func GetUserByID(ctx context.Context, db *sql.DB, id int64) (*User, error) {
 	var u User
 	var metadataJSON []byte
 	q := fmt.Sprintf(`
-        SELECT id, username, email, created_at, name, first_name, last_name, address, city, state, country, company, metadata
+        SELECT id, COALESCE(username,''), email, created_at, COALESCE(name,''), COALESCE(first_name,''), COALESCE(last_name,''), COALESCE(address,''), COALESCE(city,''), COALESCE(state,''), COALESCE(country,''), COALESCE(company,''), metadata
         FROM %s.auth_users
         WHERE id=$1
     `, pgstore.DefaultConfigSchema)
@@ -88,14 +88,20 @@ func RegisterWithUsername(ctx context.Context, db *sql.DB, username, email, pass
 			return nil, fmt.Errorf("marshal metadata: %w", err)
 		}
 	}
-	// Ensure username column exists (for upgrades) and case-insensitive unique index
-	_, _ = db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s.auth_users ADD COLUMN IF NOT EXISTS username VARCHAR(255)`, pgstore.DefaultConfigSchema))
-	_, _ = db.ExecContext(ctx, fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS auth_users_username_unique ON %s.auth_users (LOWER(username))`, pgstore.DefaultConfigSchema))
+	// Serialize first-administrator selection with administrative changes.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", authMutationLock); err != nil {
+		return nil, err
+	}
 	// Insert user
 	var id int64
 	var createdAt time.Time
 	q2 := fmt.Sprintf(`INSERT INTO %s.auth_users (username, email, password_hash, email_verified, name, first_name, last_name, address, city, state, country, company, metadata) VALUES ($1, $2, $3, FALSE, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id, created_at`, pgstore.DefaultConfigSchema)
-	err = db.QueryRowContext(ctx,
+	err = tx.QueryRowContext(ctx,
 		q2,
 		username, email, hash, name, firstName, lastName, address, city, state, country, company, metadataJSON,
 	).Scan(&id, &createdAt)
@@ -104,12 +110,18 @@ func RegisterWithUsername(ctx context.Context, db *sql.DB, username, email, pass
 	}
 	// Assign 'admin' role to the first user
 	var userCount int
-	err = db.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s.auth_users", pgstore.DefaultConfigSchema)).Scan(&userCount)
-	if err == nil && userCount == 1 {
-		errRole := AssignRole(ctx, db, id, "admin")
+	err = tx.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s.auth_users", pgstore.DefaultConfigSchema)).Scan(&userCount)
+	if err != nil {
+		return nil, err
+	}
+	if userCount == 1 {
+		_, errRole := tx.ExecContext(ctx, "INSERT INTO admin.auth_user_roles(user_id,role) VALUES ($1,'admin') ON CONFLICT(user_id,role) DO NOTHING", id)
 		if errRole != nil {
-			// swallow but could log
+			return nil, errRole
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	return &User{
 		ID:            id,
@@ -147,6 +159,9 @@ func Register(ctx context.Context, db *sql.DB, email, password, name, firstName,
 
 // LoginByIdentifier authenticates a user by username or email and returns a JWT if successful.
 func LoginByIdentifier(ctx context.Context, db *sql.DB, identifier, password string) (string, error) {
+	if db == nil {
+		return "", ErrSessionDatabaseRequired
+	}
 	idLower := strings.TrimSpace(strings.ToLower(identifier))
 	if idLower == "" || password == "" {
 		return "", errors.New("username/email and password required")
@@ -154,13 +169,18 @@ func LoginByIdentifier(ctx context.Context, db *sql.DB, identifier, password str
 	var id int64
 	var hash string
 	var email, username string
+	var authVersion int64
+	var disabled bool
 	// Allow login by username or email (username can be an email string)
-	q := fmt.Sprintf("SELECT id, password_hash, email, COALESCE(username,'') FROM %s.auth_users WHERE LOWER(username)=$1 OR LOWER(email)=$1", pgstore.DefaultConfigSchema)
-	err := db.QueryRowContext(ctx, q, idLower).Scan(&id, &hash, &email, &username)
+	q := fmt.Sprintf("SELECT id, password_hash, email, COALESCE(username,''), auth_version, disabled FROM %s.auth_users WHERE LOWER(username)=$1 OR LOWER(email)=$1", pgstore.DefaultConfigSchema)
+	err := db.QueryRowContext(ctx, q, idLower).Scan(&id, &hash, &email, &username, &authVersion, &disabled)
 	if err == sql.ErrNoRows {
 		return "", errors.New("invalid username/email or password")
 	} else if err != nil {
 		return "", fmt.Errorf("query user: %w", err)
+	}
+	if disabled || authVersion < 1 {
+		return "", ErrInvalidSession
 	}
 	// Lockout check before verifying password
 	locked, err := IsAccountLocked(ctx, db, id)
@@ -180,14 +200,7 @@ func LoginByIdentifier(ctx context.Context, db *sql.DB, identifier, password str
 	_ = ClearLoginAttempts(ctx, db, id)
 	_ = RecordLoginAttempt(ctx, db, id, true)
 	_ = LogAuditEvent(ctx, db, id, "login_success", &id, "", "")
-	
-	// Fetch user roles to include in JWT
-	roles, err := ListRoles(ctx, db, id)
-	if err != nil {
-		// Log error but don't fail login - continue with empty roles
-		roles = []string{}
-	}
-	
+
 	// TODO: Enforce MFA: if enabled, require VerifyTOTP in separate step or include a flag
 	// Issue JWT with TTL controlled by TRAZR_JWT_TTL (default 24h)
 	expiry := 24 * time.Hour
@@ -197,7 +210,7 @@ func LoginByIdentifier(ctx context.Context, db *sql.DB, identifier, password str
 		}
 	}
 	// Issue token including username and roles
-	token, err := GenerateJWTWithFullContext(id, email, username, "", nil, roles, nil, expiry, nil, nil)
+	token, err := issueSessionJWT(ctx, db, id, expiry, authVersion, "")
 	if err != nil {
 		return "", fmt.Errorf("issue jwt: %w", err)
 	}
@@ -266,7 +279,7 @@ func EnsureAllAuthTables(db *sql.DB) error {
 
 // ListUsers returns all auth_users in the system (admin use only).
 func ListUsers(ctx context.Context, db *sql.DB) ([]*User, error) {
-	rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT id, username, email, created_at, name, first_name, last_name, address, city, state, country, company, metadata FROM %s.auth_users`, pgstore.DefaultConfigSchema))
+	rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT id, COALESCE(username,''), email, created_at, COALESCE(name,''), COALESCE(first_name,''), COALESCE(last_name,''), COALESCE(address,''), COALESCE(city,''), COALESCE(state,''), COALESCE(country,''), COALESCE(company,''), metadata FROM %s.auth_users`, pgstore.DefaultConfigSchema))
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +314,7 @@ func GetUserByEmail(ctx context.Context, db *sql.DB, email string) (*User, error
 	email = strings.TrimSpace(strings.ToLower(email))
 	var u User
 	var metadataJSON []byte
-	q := fmt.Sprintf(`SELECT id, username, email, created_at, name, first_name, last_name, address, city, state, country, company, metadata FROM %s.auth_users WHERE email=$1`, pgstore.DefaultConfigSchema)
+	q := fmt.Sprintf(`SELECT id, COALESCE(username,''), email, created_at, COALESCE(name,''), COALESCE(first_name,''), COALESCE(last_name,''), COALESCE(address,''), COALESCE(city,''), COALESCE(state,''), COALESCE(country,''), COALESCE(company,''), metadata FROM %s.auth_users WHERE email=$1`, pgstore.DefaultConfigSchema)
 	err := db.QueryRowContext(ctx, q, email).
 		Scan(&u.ID, &u.Username, &u.Email, &u.CreatedAt, &u.Name, &u.FirstName, &u.LastName, &u.Address, &u.City, &u.State, &u.Country, &u.Company, &metadataJSON)
 	if err != nil {
@@ -322,7 +335,7 @@ func GetUserByIdentifier(ctx context.Context, db *sql.DB, identifier string) (*U
 	var u User
 	var metadataJSON []byte
 	q3 := fmt.Sprintf(`
-		SELECT id, username, email, created_at, name, first_name, last_name, address, city, state, country, company, metadata
+		SELECT id, COALESCE(username,''), email, created_at, COALESCE(name,''), COALESCE(first_name,''), COALESCE(last_name,''), COALESCE(address,''), COALESCE(city,''), COALESCE(state,''), COALESCE(country,''), COALESCE(company,''), metadata
 		FROM %s.auth_users
 		WHERE LOWER(username)=$1 OR LOWER(email)=$1
 	`, pgstore.DefaultConfigSchema)

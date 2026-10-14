@@ -56,7 +56,7 @@ type APIKey struct {
 }
 
 var (
-	pepperOnce sync.Once
+	pepperOnce    sync.Once
 	cachedPeppers []string
 	pepperErr     error
 )
@@ -147,15 +147,26 @@ func CreateAPIKey(ctx context.Context, db *sql.DB, userID int64, name string, or
 	if scopes == nil {
 		scopes = []string{}
 	}
-	// Validate user exists via storage
-	store := pgstore.New(db)
-	exists, err := store.Users().ExistsByID(ctx, userID)
+	if err := validateAPIKeyScopes(scopes); err != nil {
+		return "", nil, err
+	}
+	if db == nil {
+		return "", nil, ErrSessionDatabaseRequired
+	}
+	account, err := loadSessionState(ctx, db, userID)
 	if err != nil {
-		return "", nil, fmt.Errorf("check user: %w", err)
+		return "", nil, err
 	}
-	if !exists {
-		return "", nil, errors.New("user not found")
+	if account.Disabled {
+		return "", nil, ErrInvalidSession
 	}
+	if (orgID != nil || projectID != nil) && !contains(account.Roles, "admin") {
+		return "", nil, ErrAccessDenied
+	}
+	if (orgID != nil && *orgID <= 0) || (projectID != nil && *projectID <= 0) {
+		return "", nil, ErrInvalidAccess
+	}
+	store := pgstore.New(db)
 	// Generate key: trz-<prefix>_<random>
 	prefix := randomString(8)
 	secret := randomString(32)
@@ -230,8 +241,7 @@ func ExchangeAPIKeyForJWT(ctx context.Context, db *sql.DB, apiKey string) (strin
 		return "", fmt.Errorf("lookup apikey by prefix: %w", err)
 	}
 	var userID int64
-	var matchedOrgID, matchedProjectID *int64
-	var matchedScopes []string
+	var matchedID string
 	var matched bool
 	var expired bool
 	var matchedHash string
@@ -243,13 +253,7 @@ func ExchangeAPIKeyForJWT(ctx context.Context, db *sql.DB, apiKey string) (strin
 			suppliedHash := hex.EncodeToString(h.Sum(nil))
 			if hmac.Equal([]byte(suppliedHash), []byte(rec.KeyHash)) {
 				userID = rec.UserID
-				matchedOrgID = rec.OrgID
-				matchedProjectID = rec.ProjectID
-				if len(rec.ScopesJSON) > 0 {
-					if err := json.Unmarshal(rec.ScopesJSON, &matchedScopes); err != nil {
-						matchedScopes = []string{}
-					}
-				}
+				matchedID = rec.ID
 				matched = true
 				matchedHash = suppliedHash
 				if rec.ExpiresAt != nil && rec.ExpiresAt.Before(time.Now().UTC()) {
@@ -273,11 +277,6 @@ func ExchangeAPIKeyForJWT(ctx context.Context, db *sql.DB, apiKey string) (strin
 	if locked {
 		return "", errors.New("account locked due to failed attempts")
 	}
-	// Get email for user via storage
-	email, err := store.Users().GetEmailByID(ctx, userID)
-	if err != nil {
-		return "", fmt.Errorf("load user: %w", err)
-	}
 	// Issue short-lived JWT
 	expiry := 15 * time.Minute
 	if ttlStr := strings.TrimSpace(os.Getenv("TRAZR_JWT_M2M_TTL")); ttlStr != "" {
@@ -285,7 +284,7 @@ func ExchangeAPIKeyForJWT(ctx context.Context, db *sql.DB, apiKey string) (strin
 			expiry = d
 		}
 	}
-	token, err := GenerateJWTWith(userID, email, expiry, matchedOrgID, matchedProjectID, matchedScopes)
+	token, err := issueSessionJWT(ctx, db, userID, expiry, 0, matchedID)
 	if err != nil {
 		return "", fmt.Errorf("issue jwt: %w", err)
 	}
@@ -330,4 +329,20 @@ func parseFlexibleDuration(s string) (time.Duration, error) {
 		return n * 24 * 7, nil
 	}
 	return time.ParseDuration(s)
+}
+
+// Machine-token scope labels describe telemetry operations only. They never
+// grant account/admin authority or expand the owner's persisted schema grants.
+func validateAPIKeyScopes(scopes []string) error {
+	if len(scopes) > 16 {
+		return ErrInvalidAccess
+	}
+	for _, scope := range scopes {
+		switch scope {
+		case "telemetry:read", "telemetry:write", "logs:read", "logs:write", "traces:read", "traces:write", "spans:read", "spans:write", "metrics:read", "metrics:write", "profiles:read", "profiles:write", "notifications:read", "notifications:write":
+		default:
+			return ErrInvalidAccess
+		}
+	}
+	return nil
 }

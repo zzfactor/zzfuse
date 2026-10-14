@@ -8,16 +8,19 @@ import (
 	"fmt"
 
 	"github.com/medxops/trazr-otel/pkg/repository"
+	"github.com/medxops/trazr-otel/zzfuseauth"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.uber.org/zap"
 )
 
 // baseExporter contains common fields and initialization logic for all exporters.
 type baseExporter struct {
-	logger     *zap.Logger
-	cfg        *Config
-	srm        repository.ServiceResourceManagerInterface
-	signalType string
+	logger         *zap.Logger
+	cfg            *Config
+	srm            repository.ServiceResourceManagerInterface
+	signalType     string
+	tenantResolver zzfuseauth.Resolver
 }
 
 // initializeSRM initializes the ServiceResourceManager from the TrazrExtension.
@@ -29,6 +32,14 @@ func (e *baseExporter) initializeSRM(ctx context.Context, host component.Host) e
 	if err != nil {
 		return fmt.Errorf("failed to get trazr service provider: %w", err)
 	}
+	if e.cfg == nil {
+		return fmt.Errorf("exporter configuration is unavailable")
+	}
+	resolver, ok := host.GetExtensions()[e.cfg.Authenticator].(zzfuseauth.Resolver)
+	if !ok {
+		return fmt.Errorf("configured tenant ingestion authenticator is unavailable")
+	}
+	e.tenantResolver = resolver
 
 	// Wait for the extension to be ready (SRM initialized)
 	if err := provider.WaitForReady(ctx); err != nil {
@@ -46,6 +57,34 @@ func (e *baseExporter) initializeSRM(ctx context.Context, host component.Host) e
 	e.srm = srm
 
 	return nil
+}
+
+func (e *baseExporter) tenantSchema(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if e.tenantResolver == nil {
+		return "", consumererror.NewPermanent(zzfuseauth.ErrUnauthenticated)
+	}
+	tenant, err := e.tenantResolver.ResolveTenant(ctx)
+	if err != nil {
+		return "", consumererror.NewPermanent(err)
+	}
+	return tenant.Schema, nil
+}
+
+func (e *baseExporter) tenantIngressSchema(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if e.tenantResolver == nil {
+		return "", consumererror.NewPermanent(zzfuseauth.ErrUnauthenticated)
+	}
+	tenant, err := e.tenantResolver.ResolveIngressTenant(ctx)
+	if err != nil {
+		return "", consumererror.NewPermanent(err)
+	}
+	return tenant.Schema, nil
 }
 
 // shutdown handles graceful shutdown.

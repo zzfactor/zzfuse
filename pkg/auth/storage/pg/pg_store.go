@@ -163,7 +163,7 @@ func (r *tokenBlacklistRepo) EnsureSchema(ctx context.Context) error {
 	return nil
 }
 func (r *tokenBlacklistRepo) Insert(ctx context.Context, jti string, expiresAt time.Time) error {
-	q := fmt.Sprintf("INSERT INTO %s.auth_token_blacklist (jti, expires_at) VALUES ($1,$2)", r.s.schema)
+	q := fmt.Sprintf("INSERT INTO %s.auth_token_blacklist (jti, expires_at) VALUES ($1,$2) ON CONFLICT (jti) DO UPDATE SET expires_at=GREATEST(%s.auth_token_blacklist.expires_at,EXCLUDED.expires_at)", r.s.schema, r.s.schema)
 	_, err := r.s.exec(ctx, q, jti, expiresAt)
 	if err != nil {
 		return fmt.Errorf("tokenBlacklistRepo.Insert: %w", err)

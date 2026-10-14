@@ -22,5 +22,12 @@ func ChangePassword(ctx context.Context, db *sql.DB, userID int64, oldPassword, 
 	if err != nil {
 		return err
 	}
-	return store.Users().UpdatePasswordHash(ctx, userID, hashNew)
+	result, err := db.ExecContext(ctx, "UPDATE admin.auth_users SET password_hash=$1, auth_version=auth_version+1 WHERE id=$2 AND password_hash=$3 AND disabled=FALSE", hashNew, userID, hash)
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err != nil || n != 1 {
+		return errors.New("password changed or account unavailable")
+	}
+	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/medxops/trazr-otel/pkg/auth"
 	"github.com/medxops/trazr-otel/pkg/repository"
 )
 
@@ -30,6 +31,14 @@ type Schema struct {
 // NewSchemasHandler creates a new HTTP handler for the schemas endpoint
 func NewSchemasHandler(rsMgr repository.ServiceResourceManagerInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			WriteErrorResponse(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if _, err := auth.GetUserContext(r.Context()); err != nil {
+			WriteErrorResponse(w, http.StatusUnauthorized, "user context not found")
+			return
+		}
 		// Get schema configurations from the service resource manager
 		// We need to access the internal schemaConfigs field
 		srm, ok := rsMgr.(*repository.ServiceResourceManager)
@@ -54,8 +63,11 @@ func NewSchemasHandler(rsMgr repository.ServiceResourceManagerInterface) http.Ha
 		}
 
 		// Convert to API response format
-		var schemas []Schema
+		schemas := make([]Schema, 0)
 		for _, config := range schemaConfigs {
+			if !auth.UserHasSchemaAccess(r.Context(), config.DatabaseSchema) {
+				continue
+			}
 			schema := Schema{
 				ID:          int(config.ID),
 				Name:        config.Name,

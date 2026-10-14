@@ -1,6 +1,6 @@
 # Development
 
-Use Go 1.27.2 or newer, Node.js 24, Python 3.11, and uv. There is no root `go.mod` or `go.work`; run Go checks inside the twelve modules or through the Makefile.
+Use Go 1.27.2 or newer, Node.js 24, Python 3.11, and uv. There is no root `go.mod` or `go.work`; run Go checks inside the thirteen modules or through the Makefile.
 
 ```sh
 make go-check
@@ -62,7 +62,7 @@ Supply only a disposable TimescaleDB database. The test creates and removes its 
 make stack-e2e
 ```
 
-This builds all project images, downloads the public MiniLM model and pinned Playwright Chromium, and runs a real browser against the production frontend. The harness owns a unique Docker network, randomly published localhost ports, generated test secrets, and a tmpfs database. It verifies signup/login, private reset email and token replay rejection, logs/traces/all metric types/profiles, NATS events, actual model inference, production manager-driven embedding jobs, vector persistence, and nearest-neighbor lookup. SMTP is captured locally with Mailpit; no external email is sent. It cleans up only its own resources and stores redacted diagnostics under ignored `.local/e2e-output/`.
+This builds all project images, downloads the public MiniLM model and pinned Playwright Chromium, and runs a real browser against the production frontend. The harness owns a unique Docker network, randomly published localhost ports, generated test secrets, and a tmpfs database. It verifies signup/login, private reset email, token replay and old-session rejection, explicit tenant grants, scoped API-key revocation, live WebSocket revocation, HTTP/gRPC tenant ingestion, file-backed queue replay after a forced Collector crash, logs/traces/all metric types/profiles, NATS events, actual model inference, production manager-driven embedding jobs, vector persistence, and nearest-neighbor lookup. SMTP is captured locally with Mailpit; no external email is sent. It cleans up only its own resources and stores redacted diagnostics under ignored `.local/e2e-output/`.
 
 Run `python3 scripts/test-stack-e2e.py --help` to select prebuilt images. The manually dispatched GitHub CI option `full_stack_e2e` runs this suite; ordinary CI runs unit, manifest, frontend, Python contract, and secret checks. Run `sh build/database/smoke-test.sh` for focused extension/columnstore/index validation. See [database images](../build/database/README.md) for ARM64 and AMD64 checks and PostgreSQL major-upgrade requirements.
 
@@ -75,6 +75,10 @@ TRAZR_IT=1 TEST_AUTH_RESET_DSN="$DISPOSABLE_TEST_DSN" \
 ```
 
 Supply only a disposable database. This test checks hashed storage, concurrent one-time consumption, rollback on password update failure, and failed-delivery revocation using a local SMTP capture.
+
+Database-backed authorization has an additional opt-in suite: set `TRAZR_IT=1` and `TEST_AUTH_SESSION_DSN` with `-tags integration -run '^TestSession' -race ./...` in `pkg/auth`. The disposable PostgreSQL service must allow the test to create and remove its own databases. It checks additive legacy migration, explicit grants, current roles, session/key revocation, reset rollback, OAuth identity compatibility, and concurrent first/last-administrator decisions.
+
+Worker lease tests use `TRAZR_IT=1` and `TEST_WORKER_CLAIMS_DSN` with `-tags integration -run '^TestWorkerClaims' -race .` in `pkg/repository`. They check concurrent claimers, all physical signal time windows, stale fencing, cancellation, grouped receipt recovery without duplicate vectors, and retention recovery. See the [worker contract](../pkg/repository/workers.md) for supported providers and modes.
 
 The metric storage regression in `pkg/repository` uses `TRAZR_IT=1` and `TEST_METRIC_READBACK_DSN` with `-tags integration -run '^TestMetricStorageAndQueryRoundTrip$'`. It provisions current DDL and checks all five types through insert, list, typed by-ID lookup with colliding IDs, and cursor pages. Supply a disposable TimescaleDB database. These focused checks complement the complete OTLP/browser/worker flow above.
 

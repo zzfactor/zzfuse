@@ -54,13 +54,14 @@ func TestProfilesExporterPreservesContextDictionaryAndSource(t *testing.T) {
 	writer := &captureProfileWriter{}
 	exp := newProfilesExporter(zap.NewNop(), createDefaultConfig().(*Config))
 	exp.profileWriter = writer
+	ctx := authenticatedTestContext(t, &exp.baseExporter, "profile_test")
 	exp.srm = &mocks.MockServiceResourceManager{GetSchemaFunc: func(name, ns string) (string, bool, error) {
 		if name != "profile-review" || ns != "modern-team" {
 			t.Fatal("resource routing context lost")
 		}
 		return "profile_test", true, nil
 	}}
-	if err = exp.pushProfileData(context.Background(), pd); err != nil {
+	if err = exp.pushProfileData(ctx, pd); err != nil {
 		t.Fatal(err)
 	}
 	if len(writer.entries) != 3 || len(writer.schemas) != 1 || writer.schemas[0] != "profile_test" {
@@ -96,8 +97,9 @@ func TestProfilesExporterRejectsInvalidDictionaryBeforeWrites(t *testing.T) {
 	writer := &captureProfileWriter{}
 	exp := newProfilesExporter(zap.NewNop(), createDefaultConfig().(*Config))
 	exp.profileWriter = writer
+	ctx := authenticatedTestContext(t, &exp.baseExporter, "profile_test")
 	exp.srm = &mocks.MockServiceResourceManager{GetSchemaFunc: func(string, string) (string, bool, error) { return "profile_test", true, nil }}
-	if err := exp.pushProfileData(context.Background(), pd); err == nil || len(writer.entries) != 0 {
+	if err := exp.pushProfileData(ctx, pd); err == nil || len(writer.entries) != 0 {
 		t.Fatal("invalid batch was partially written")
 	}
 }
@@ -135,7 +137,7 @@ func TestExporterQueueConfigurationOptional(t *testing.T) {
 	}
 }
 
-func TestProfilesExporterRoutesIsolatedMixedSchemas(t *testing.T) {
+func TestProfilesExporterBindsSpoofedResourceLabelsToOneTenant(t *testing.T) {
 	raw, _ := os.ReadFile("../pkg/repository/testdata/current-profiles.pb")
 	pd, err := (&pprofile.ProtoUnmarshaler{}).UnmarshalProfiles(raw)
 	if err != nil {
@@ -148,19 +150,20 @@ func TestProfilesExporterRoutesIsolatedMixedSchemas(t *testing.T) {
 	writer := &captureProfileWriter{}
 	exp := newProfilesExporter(zap.NewNop(), createDefaultConfig().(*Config))
 	exp.profileWriter = writer
+	ctx := authenticatedTestContext(t, &exp.baseExporter, "tenant_a")
 	exp.srm = &mocks.MockServiceResourceManager{GetSchemaFunc: func(_, namespace string) (string, bool, error) {
 		if namespace == "other-tenant" {
 			return "tenant_b", true, nil
 		}
 		return "tenant_a", true, nil
 	}}
-	if err := exp.pushProfileData(context.Background(), pd); err != nil {
+	if err := exp.pushProfileData(ctx, pd); err != nil {
 		t.Fatal(err)
 	}
-	if len(writer.entries) != 3 || len(writer.schemas) != 2 || len(writer.groups["tenant_a"]) != 2 || len(writer.groups["tenant_b"]) != 1 {
-		t.Fatal("mixed schema routing lost profiles")
+	if len(writer.entries) != 3 || len(writer.schemas) != 1 || len(writer.groups["tenant_a"]) != 3 || len(writer.groups["tenant_b"]) != 0 {
+		t.Fatal("resource labels overrode authenticated tenant schema")
 	}
-	for schema, entries := range writer.groups {
+	for _, entries := range writer.groups {
 		for _, entry := range entries {
 			decoded, err := repository.DecodeStoredProfile(entry)
 			if err != nil {
@@ -172,7 +175,7 @@ func TestProfilesExporterRoutesIsolatedMixedSchemas(t *testing.T) {
 			}
 			foreign := "tenant-b-secret"
 			own := "tenant-a-secret"
-			if schema == "tenant_b" {
+			if entry.ServiceNamespace != nil && *entry.ServiceNamespace == "other-tenant" {
 				foreign, own = own, foreign
 			}
 			if bytes.Contains(view, []byte(foreign)) || bytes.Contains(view, []byte("orphan-secret")) || !bytes.Contains(view, []byte(own)) {
@@ -181,7 +184,7 @@ func TestProfilesExporterRoutesIsolatedMixedSchemas(t *testing.T) {
 		}
 	}
 }
-func TestProfilesExporterRejectsUnroutedResourceBeforeWrites(t *testing.T) {
+func TestProfilesExporterRejectsUnauthenticatedResourceBeforeWrites(t *testing.T) {
 	raw, _ := os.ReadFile("../pkg/repository/testdata/current-profiles.pb")
 	pd, err := (&pprofile.ProtoUnmarshaler{}).UnmarshalProfiles(raw)
 	if err != nil {
@@ -191,9 +194,10 @@ func TestProfilesExporterRejectsUnroutedResourceBeforeWrites(t *testing.T) {
 	writer := &captureProfileWriter{}
 	exp := newProfilesExporter(zap.NewNop(), createDefaultConfig().(*Config))
 	exp.profileWriter = writer
+	_ = authenticatedTestContext(t, &exp.baseExporter, "tenant_a")
 	exp.srm = &mocks.MockServiceResourceManager{GetSchemaFunc: func(_, namespace string) (string, bool, error) { return "tenant_a", namespace != "unrouted", nil }}
 	if err := exp.pushProfileData(context.Background(), pd); err == nil || len(writer.entries) != 0 {
-		t.Fatal("unrouted resource batch was partially written")
+		t.Fatal("unauthenticated resource batch was partially written")
 	}
 }
 
@@ -214,13 +218,14 @@ func TestProfilesExporterOmitsForeignEmptyResourceDictionary(t *testing.T) {
 	writer := &captureProfileWriter{}
 	exp := newProfilesExporter(zap.NewNop(), createDefaultConfig().(*Config))
 	exp.profileWriter = writer
+	ctx := authenticatedTestContext(t, &exp.baseExporter, "tenant_a")
 	exp.srm = &mocks.MockServiceResourceManager{GetSchemaFunc: func(_, namespace string) (string, bool, error) {
 		if namespace == "other-tenant" {
 			return "tenant_b", true, nil
 		}
 		return "tenant_a", true, nil
 	}}
-	if err := exp.pushProfileData(context.Background(), pd); err != nil || len(writer.entries) != 2 || len(writer.groups["tenant_a"]) != 2 {
+	if err := exp.pushProfileData(ctx, pd); err != nil || len(writer.entries) != 2 || len(writer.groups["tenant_a"]) != 2 {
 		t.Fatal("isolated profiles from populated tenant were not written", err)
 	}
 	for _, entry := range writer.entries {
@@ -237,7 +242,7 @@ func TestProfilesExporterOmitsForeignEmptyResourceDictionary(t *testing.T) {
 		}
 	}
 	pd.ResourceProfiles().At(0).ScopeProfiles().At(0).Profiles().RemoveIf(func(pprofile.Profile) bool { return true })
-	if err := exp.pushProfileData(context.Background(), pd); err != nil || len(writer.entries) != 2 {
+	if err := exp.pushProfileData(ctx, pd); err != nil || len(writer.entries) != 2 {
 		t.Fatal("entirely profile-empty request should be a no-op", err)
 	}
 }

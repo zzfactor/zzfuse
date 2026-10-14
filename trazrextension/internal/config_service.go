@@ -129,7 +129,7 @@ func (s *ConfigService) ListConfigurations(ctx context.Context, configType strin
 				Name:        config.Name,
 				Type:        "embeddings",
 				Enabled:     true, // EmbeddingConfig doesn't have Enabled field, default to true
-				Description: "", // EmbeddingConfig doesn't have Description field
+				Description: "",   // EmbeddingConfig doesn't have Description field
 				CreatedAt:   config.CreatedAt,
 				UpdatedAt:   config.UpdatedAt,
 			})
@@ -161,7 +161,7 @@ func (s *ConfigService) ListConfigurations(ctx context.Context, configType strin
 				Name:        config.Name,
 				Type:        "vectorstores",
 				Enabled:     true, // VectorStoreConfig doesn't have Enabled field, default to true
-				Description: "", // VectorStoreConfig doesn't have Description field
+				Description: "",   // VectorStoreConfig doesn't have Description field
 				CreatedAt:   config.CreatedAt,
 				UpdatedAt:   config.UpdatedAt,
 			})
@@ -582,6 +582,7 @@ func (s *ConfigService) CreateConfiguration(ctx context.Context, req *ConfigCrea
 		return nil, fmt.Errorf("unsupported config type: %s", req.Type)
 	}
 }
+
 // UpdateConfiguration updates an existing configuration
 func (s *ConfigService) UpdateConfiguration(ctx context.Context, configType string, id int64, req *ConfigCreateServiceRequest) (*ConfigServiceResponse, error) {
 	configRepo, err := s.getConfigRepository(ctx)
@@ -605,7 +606,7 @@ func (s *ConfigService) UpdateConfiguration(ctx context.Context, configType stri
 		existing.Enabled = req.Enabled
 		existing.Description = req.Description
 		existing.DatabaseSchema = extractStringFromConfig(req.Config, "database_schema", existing.DatabaseSchema)
-		existing.Priority = int(extractInt64FromConfig(req.Config, "priority", int64(existing.Priority)))
+		existing.Priority = req.Priority
 		existing.Routing = extractMapFromConfig(req.Config, "routing")
 		existing.Metadata = req.Metadata
 

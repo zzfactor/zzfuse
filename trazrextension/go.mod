@@ -3,6 +3,7 @@ module github.com/medxops/trazr-otel/trazrextension
 go 1.27.2
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.11.0
@@ -17,18 +18,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0
 	go.uber.org/zap v1.28.0
 )
-
-replace github.com/medxops/trazr-otel/pkg/auth => ../pkg/auth
-
-replace github.com/medxops/trazr-otel/pkg/repository => ../pkg/repository
-
-replace github.com/medxops/trazr-otel/pkg/metrics => ../pkg/metrics
-
-replace github.com/medxops/trazr-otel/pkg/util => ../pkg/util
-
-replace github.com/medxops/trazr-otel/pkg/event => ../pkg/event
-
-replace github.com/medxops/trazr-otel/pkg/config => ../pkg/config
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
@@ -118,3 +107,15 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/go-jose/go-jose.v2 v2.6.3 // indirect
 )
+
+replace github.com/medxops/trazr-otel/pkg/auth => ../pkg/auth
+
+replace github.com/medxops/trazr-otel/pkg/repository => ../pkg/repository
+
+replace github.com/medxops/trazr-otel/pkg/metrics => ../pkg/metrics
+
+replace github.com/medxops/trazr-otel/pkg/util => ../pkg/util
+
+replace github.com/medxops/trazr-otel/pkg/event => ../pkg/event
+
+replace github.com/medxops/trazr-otel/pkg/config => ../pkg/config

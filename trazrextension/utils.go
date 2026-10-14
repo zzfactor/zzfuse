@@ -58,7 +58,7 @@ func ValidateJWTFromRequest(r *http.Request) (jwt.MapClaims, error) {
 	}
 
 	// Delegate verification to pkg/auth for kid/issuer/audience/leeway support
-	parsed, err := authpkg.ValidateJWT(tokenString)
+	parsed, err := authpkg.ValidateJWTFromRequest(r)
 	if err != nil {
 		return nil, errors.New("invalid token")
 	}

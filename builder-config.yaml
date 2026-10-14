@@ -37,6 +37,8 @@ receivers:
       go.opentelemetry.io/collector/receiver/otlpreceiver v0.163.0
 
 extensions:
+  - gomod: github.com/medxops/trazr-otel/zzfuseauth v0.1.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.163.0
   - gomod:
       github.com/medxops/trazr-otel/trazrextension v0.1.0
     import: github.com/medxops/trazr-otel/trazrextension
@@ -51,6 +53,7 @@ providers:
   - gomod: go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.69.0
 
 replaces:
+  - github.com/medxops/trazr-otel/zzfuseauth => ../zzfuseauth
   - github.com/medxops/trazr-otel/trazrprocessor => ../trazrprocessor
   - github.com/medxops/trazr-otel/trazrextension => ../trazrextension
   - github.com/medxops/trazr-otel/trazrexporter => ../trazrexporter

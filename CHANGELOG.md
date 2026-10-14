@@ -2,10 +2,16 @@
 
 ## Unreleased
 
+- Require credential-bound HTTP/gRPC ingestion and preserve signed tenant identity in a persistent, fsynced exporter queue.
+- Deny empty nonadministrator schema grants, refresh database-backed authorization, and revoke sessions on logout, password reset, account changes and API-key removal.
+- Add administrator grant/account/session controls and close existing WebSockets after access changes.
+- Coordinate workers with durable leases, fenced PGVector/receipt commits, crash recovery, SQL polling, time bounds and requested batch sizes.
+- Reject durable external-vector and secondary `template_plus` effects until their protocols are implemented.
+
 - Prepare zzfuse naming, documentation, contributor guidance, Apache 2.0 licensing, and CI for the intended zzfactor/zzfuse repository.
 - Upgrade compatible Go, frontend, and Python dependencies with reproducible manifests and lockfiles.
 - Modernize all Go modules to Go 1.27.2 and Collector 0.163.0 / stable modules 1.69.0, retaining OpenTelemetry SDK 1.47.0.
-- Enable profile ingestion with versioned protobuf storage, exact unsigned time/duration, lossless dictionary compaction, mixed-schema routing, and byte-preserving legacy queries.
+- Enable profile ingestion with versioned protobuf storage, exact unsigned time/duration, lossless dictionary compaction, credential-bound tenant routing, and byte-preserving legacy queries.
 - Correct schema authorization and isolation across HTTP and WebSocket operations.
 - Preserve verified roles, schema grants, and tenant identity when adapting JWT claims for admin and legacy handlers.
 - Repair worker accounting, lifecycle behavior, metadata extraction, and template rendering.

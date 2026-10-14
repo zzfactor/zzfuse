@@ -16,7 +16,7 @@ make python-install
 make python-test
 ```
 
-With PostgreSQL and the TimescaleDB extension configured, run the Collector:
+With PostgreSQL and the TimescaleDB extension configured, set the ingestion token/signing key and a writable queue directory as described in the [configuration guide](docs/configuration.md), then run the Collector:
 
 ```sh
 ./trazr-otel/trazr-otel --feature-gates=+service.profilesSupport --config config.yaml
@@ -33,7 +33,7 @@ make docs-check
 
 See [development](docs/development.md) for unit tests, race checks, integration setup, and Collector regeneration. The frontend runs with `make frontend-dev`.
 
-`make profile-e2e` checks real profile storage and migration. `make stack-e2e` builds an isolated stack and checks browser authentication, SMTP reset, all telemetry signals, NATS events, actual MiniLM inference, and production worker/vector persistence. Both require Docker and clean up their disposable resources.
+`make profile-e2e` checks real profile storage and migration. `make stack-e2e` builds an isolated stack and checks browser authentication, SMTP reset, all telemetry signals, NATS events, actual MiniLM inference, production worker/vector persistence, tenant isolation, session revocation, and queue recovery after a forced crash. Both require Docker and clean up their disposable resources.
 
 SQL and vector search require explicitly configured backend endpoints: the Collector does not register their legacy routes. Password reset requires the SMTP configuration described in the [configuration guide](docs/configuration.md).
 

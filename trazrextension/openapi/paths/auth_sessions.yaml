@@ -1,0 +1,256 @@
+paths:
+  "/api/v1/auth/whoami":
+    get:
+      tags:
+      - Authentication
+      summary: Read current account and schema grants
+      security:
+      - bearerAuth: []
+      description: Validates the current account, session version and JTI; returns
+        database-backed roles and schema grants.
+      responses:
+        '200':
+          description: Current user, roles and schemas
+        '401':
+          description: Authentication, authorization, or account state rejected the
+            operation
+  "/api/v1/auth/renew":
+    post:
+      tags:
+      - Authentication
+      summary: Renew an active user session
+      security:
+      - bearerAuth: []
+      description: Rejects revoked, disabled, deleted and legacy versionless sessions.
+        API-key tokens must be exchanged again.
+      responses:
+        '200':
+          description: Refreshed user session token
+        '401':
+          description: Authentication, authorization, or account state rejected the
+            operation
+  "/api/v1/auth/logout":
+    post:
+      tags:
+      - Authentication
+      summary: Revoke the current backend session
+      security:
+      - bearerAuth: []
+      description: Adds the current JTI to the database denylist through token expiry.
+        Other sessions stay active.
+      responses:
+        '204':
+          description: Current session revoked
+        '401':
+          description: Authentication, authorization, or account state rejected the
+            operation
+  "/api/v1/admin/user/access":
+    get:
+      tags:
+      - Administration
+      summary: Read current user access
+      security:
+      - bearerAuth: []
+      parameters:
+      - in: query
+        name: user_id
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Current persisted access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: integer
+                  email:
+                    type: string
+                  username:
+                    type: string
+                  disabled:
+                    type: boolean
+                  tenant_id:
+                    type: string
+                  roles:
+                    type: array
+                    items:
+                      type: string
+                  schemas:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          description: Authentication, authorization, or account state rejected the
+            operation
+        '403':
+          description: Authentication, authorization, or account state rejected the
+            operation
+        '404':
+          description: User not found
+  "/api/v1/admin/user/schemas":
+    post:
+      tags:
+      - Administration
+      summary: Replace explicit schema grants
+      description: An empty list removes all schema access for nonadministrators.
+        Grants use exact schema identities; no implicit wildcard or migration backfill.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - user_id
+              - schemas
+              properties:
+                user_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                schemas:
+                  type: array
+                  maxItems: 256
+                  items:
+                    type: string
+                    pattern: "^[a-z_][a-z0-9_]*$"
+                    maxLength: 63
+      responses:
+        '200':
+          description: Access change committed
+        '400':
+          description: Invalid access change or last-administrator protection
+        '401':
+          description: Authentication, authorization, or account state rejected the
+            operation
+        '403':
+          description: Authentication, authorization, or account state rejected the
+            operation
+        '404':
+          description: User not found
+  "/api/v1/admin/user/roles":
+    post:
+      tags:
+      - Administration
+      summary: Replace user roles
+      description: Changes apply to existing sessions immediately. Removing the last
+        enabled administrator is rejected.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - user_id
+              - roles
+              properties:
+                user_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                roles:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                    - admin
+                    - user
+                    - viewer
+                    - editor
+      responses:
+        '200':
+          description: Access change committed
+        '400':
+          description: Invalid access change or last-administrator protection
+        '401':
+          description: Authentication, authorization, or account state rejected the
+            operation
+        '403':
+          description: Authentication, authorization, or account state rejected the
+            operation
+        '404':
+          description: User not found
+  "/api/v1/admin/user/disabled":
+    post:
+      tags:
+      - Administration
+      summary: Enable or disable an account
+      description: Changing enabled state revokes all existing sessions. Re-enabling
+        requires a new login. Disabling the last enabled administrator is rejected.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - user_id
+              - disabled
+              properties:
+                user_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                disabled:
+                  type: boolean
+      responses:
+        '204':
+          description: Access change committed
+        '400':
+          description: Invalid access change or last-administrator protection
+        '401':
+          description: Authentication, authorization, or account state rejected the
+            operation
+        '403':
+          description: Authentication, authorization, or account state rejected the
+            operation
+        '404':
+          description: User not found
+  "/api/v1/admin/user/revoke-sessions":
+    post:
+      tags:
+      - Administration
+      summary: Revoke all sessions for an account
+      description: Increments the account session version. Previously issued user
+        and API-key JWTs cannot be reused or renewed.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - user_id
+              properties:
+                user_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+      responses:
+        '204':
+          description: Access change committed
+        '400':
+          description: Invalid access change or last-administrator protection
+        '401':
+          description: Authentication, authorization, or account state rejected the
+            operation
+        '403':
+          description: Authentication, authorization, or account state rejected the
+            operation
+        '404':
+          description: User not found

@@ -63,6 +63,8 @@ type schemaLifecycleStore struct {
 	health  func(context.Context) error
 }
 
+func (*schemaLifecycleStore) SupportsEmbeddingClaims(*sql.DB) bool { return true }
+
 func (s *schemaLifecycleStore) Close() error {
 	s.closed.Add(1)
 	if s.onClose != nil {

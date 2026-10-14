@@ -28,6 +28,30 @@ async function resetPage(page, url) {
 
 async function main() {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+  if (input.mode === 'tenant-stream') {
+    const endpoint = input.api.replace(/^http/, 'ws') + '/stream/logs?schema=tenant_a&token=' + encodeURIComponent(input.jwt);
+    const socket = new WebSocket(endpoint);
+    const timeout = setTimeout(() => socket.close(), 10_000);
+    try {
+      await new Promise((resolve, reject) => {
+        socket.addEventListener('open', resolve, { once: true });
+        socket.addEventListener('error', () => reject(new Error('Authorized tenant stream did not open')), { once: true });
+      });
+      const closed = new Promise(resolve => socket.addEventListener('close', resolve, { once: true }));
+      const response = await fetch(input.api + '/admin/user/schemas', {
+        method: 'POST', headers: { Authorization: 'Bearer ' + input.adminJwt, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: input.userId, schemas: [] }),
+      });
+      assert.equal(response.status, 200, 'Grant removal failed');
+      const event = await closed;
+      assert.equal(event.code, 1008, 'Stream was not closed after revoking its schema grant');
+      process.stdout.write(JSON.stringify({ revocation: 'passed' }));
+      return;
+    } finally {
+      clearTimeout(timeout);
+      socket.close();
+    }
+  }
   const browser = await chromium.launch();
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -58,6 +82,12 @@ async function main() {
       await page.getByRole('button', { name: 'Sign in with Email', exact: true }).click();
       await page.getByRole('alert').waitFor();
       assert.equal(new URL(page.url()).pathname, '/login');
+      await page.getByLabel('Password', { exact: true }).fill(input.password);
+      await page.getByRole('button', { name: 'Sign in with Email', exact: true }).click();
+      await page.waitForURL('**/dashboard');
+    } else if (input.mode === 'logout') {
+      await page.goto(input.url + '/login');
+      await page.getByLabel('Email Address', { exact: true }).fill(input.email);
       await page.getByLabel('Password', { exact: true }).fill(input.password);
       await page.getByRole('button', { name: 'Sign in with Email', exact: true }).click();
       await page.waitForURL('**/dashboard');
@@ -110,6 +140,17 @@ async function main() {
     assert.equal(new URL(page.url()).pathname, '/admin/users');
     assert.deepEqual(errors, [], 'Browser runtime errors');
     await page.screenshot({ path: input.screenshot, fullPage: true });
+    if (input.mode === 'logout') {
+      await page.goto(input.url + '/');
+      const [response] = await Promise.all([
+        page.waitForResponse(response => new URL(response.url()).pathname === '/api/auth/signout' && response.request().method() === 'POST'),
+        page.waitForEvent('framenavigated', { predicate: frame => frame === page.mainFrame() && new URL(frame.url()).pathname === '/' }),
+        page.getByRole('button', { name: 'Logout', exact: true }).click(),
+      ]);
+      assert.equal(response.status(), 200, 'Browser signout failed');
+      const signedOut = await (await context.request.get(input.url + '/api/auth/session')).json();
+      assert.ok(!signedOut.user, 'Browser retained its signed-out session');
+    }
     // This test-only token is consumed in memory by the orchestrator, never logged.
     process.stdout.write(JSON.stringify({ jwt: session.jwt, userId: session.user.id }));
   } catch (error) {

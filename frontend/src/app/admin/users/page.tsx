@@ -11,6 +11,8 @@ type User = {
     email: string;
     role?: string;
     roles?: string[];
+    schemas: string[];
+    disabled: boolean;
 };
 
 export default function UserManagementPage() {
@@ -19,6 +21,8 @@ export default function UserManagementPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [resettingId, setResettingId] = useState<number | null>(null);
+    const [savingId, setSavingId] = useState<number | null>(null);
+    const [schemaDrafts, setSchemaDrafts] = useState<Record<number, string>>({});
 
     useEffect(() => {
         const fetchUsers = async () => {
@@ -32,12 +36,9 @@ export default function UserManagementPage() {
                 });
                 if (!res.ok) throw new Error("Failed to fetch users");
                 const data = await res.json();
-                // Map role from user object (if roles is array, take first; else fallback)
-                setUsers((data as User[]).map((u) => ({
-                    id: u.id,
-                    email: u.email,
-                    role: u.role || (u.roles ? u.roles[0] : undefined) || "user"
-                })));
+                const loaded = data as User[];
+                setUsers(loaded);
+                setSchemaDrafts(Object.fromEntries(loaded.map(user => [user.id, (user.schemas || []).join(", ")])));
             } catch (err) {
                 setError(errorMessage(err));
             } finally {
@@ -46,6 +47,27 @@ export default function UserManagementPage() {
         };
         if (session?.jwt && isAdmin(session)) fetchUsers();
     }, [session]);
+
+    const updateAccess = async (user: User, change: { schemas: string[] } | { disabled: boolean } | { revoke_sessions: true }) => {
+        setSavingId(user.id);
+        setError("");
+        try {
+            const res = await fetch(`/api/users/${user.id}/access`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.jwt}` },
+                body: JSON.stringify(change),
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data?.error || "Failed to update access");
+            }
+            setUsers(current => current.map(row => row.id === user.id ? { ...row, ...change } : row));
+        } catch (err) {
+            setError(errorMessage(err));
+        } finally {
+            setSavingId(null);
+        }
+    };
 
     const handleDelete = async (id: number) => {
         if (!confirm("Are you sure you want to delete this user?")) return;
@@ -94,6 +116,7 @@ export default function UserManagementPage() {
             <main className="flex-1 p-8">
                 <section className="mb-8">
                     <h2 className="text-lg font-semibold mb-2">Users</h2>
+                    <p className="mb-4 text-sm text-muted-foreground">Users need explicit schema grants. An empty list removes all schema access. Administrators can access all schemas.</p>
                     {error && (
                         <Alert variant="destructive" className="mb-4">
                             <AlertTitle>Error</AlertTitle>
@@ -107,13 +130,14 @@ export default function UserManagementPage() {
                                     {/* <th className="px-2 py-1 border">ID</th> */}
                                     <th className="px-2 py-1 border">Email</th>
                                     <th className="px-2 py-1 border">Role</th>
+                                    <th className="px-2 py-1 border">Schema access</th>
                                     <th className="px-2 py-1 border">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={3} className="text-center py-4">
+                                        <td colSpan={4} className="text-center py-4">
                                             Loading...
                                         </td>
                                     </tr>
@@ -122,7 +146,20 @@ export default function UserManagementPage() {
                                         <tr key={user.id}>
                                             {/* <td className="px-2 py-1 border">{user.id}</td> */}
                                             <td className="px-2 py-1 border">{user.email}</td>
-                                            <td className="px-2 py-1 border">{user.role === "admin" ? "Admin" : "User"}</td>
+                                            <td className="px-2 py-1 border">{user.roles?.includes("admin") ? "Admin" : "User"}{user.disabled ? " (disabled)" : ""}</td>
+                                            <td className="px-2 py-1 border">
+                                                <input
+                                                    aria-label={`Schemas for ${user.email}`}
+                                                    className="rounded border px-2 py-1"
+                                                    placeholder="otel, tenant_a"
+                                                    value={schemaDrafts[user.id] || ""}
+                                                    onChange={event => setSchemaDrafts(current => ({ ...current, [user.id]: event.target.value }))}
+                                                />
+                                                <Button size="sm" variant="outline" className="ml-2" disabled={savingId === user.id}
+                                                    onClick={() => updateAccess(user, { schemas: (schemaDrafts[user.id] || "").split(",").map(value => value.trim()).filter(Boolean) })}>
+                                                    Save grants
+                                                </Button>
+                                            </td>
                                             <td className="px-2 py-1 border flex gap-2">
                                                 <Button
                                                     variant="destructive"
@@ -140,6 +177,10 @@ export default function UserManagementPage() {
                                                 >
                                                     {resettingId === user.id ? "Resetting..." : "Reset Password"}
                                                 </Button>
+                                                <Button variant="outline" size="sm" disabled={savingId === user.id}
+                                                    onClick={() => updateAccess(user, { revoke_sessions: true })}>Revoke sessions</Button>
+                                                <Button variant="outline" size="sm" disabled={savingId === user.id}
+                                                    onClick={() => updateAccess(user, { disabled: !user.disabled })}>{user.disabled ? "Enable" : "Disable"}</Button>
                                             </td>
                                         </tr>
                                     ))

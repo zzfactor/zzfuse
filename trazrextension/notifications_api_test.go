@@ -6,10 +6,10 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
+	"github.com/DATA-DOG/go-sqlmock"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/medxops/trazr-otel/pkg/auth"
 )
@@ -75,16 +75,18 @@ func TestNotificationsEnqueue_Success(t *testing.T) {
 
 	handler := NewNotificationsEnqueueHandlerDB(db)
 
-	token, err := auth.GenerateJWTWith(123, "user@example.com", time.Hour, nil, nil, []string{"notifications:write"})
-	if err != nil {
-		t.Fatalf("failed to generate jwt with scope: %v", err)
-	}
+	sessionDB, mock := sessionTestDatabase(t)
+	token := sessionTestToken(t, 123, "notification-key")
+	expectSessionLookup(mock, 123, []string{"user"}, []string{"otel"})
+	mock.ExpectQuery(`SELECT org_id,project_id,COALESCE\(scopes,`).WithArgs("notification-key", int64(123)).
+		WillReturnRows(sqlmock.NewRows([]string{"org_id", "project_id", "scopes", "expires_at"}).AddRow(nil, nil, []byte(`["notifications:write"]`), nil))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/notifications", newJSONBody(t, map[string]any{
 		"topic": "alerts",
 		"data":  map[string]any{"title": "hi"},
 	}))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(auth.WithSessionDatabase(req.Context(), sessionDB))
 
 	// Act
 	rr := httptest.NewRecorder()

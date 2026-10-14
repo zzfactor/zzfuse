@@ -5,7 +5,6 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/medxops/trazr-otel/pkg/auth"
@@ -17,11 +16,11 @@ func TestValidatedJWTKeepsAuthorizationContext(t *testing.T) {
 	t.Setenv("TRAZR_JWT_KID", "")
 	t.Setenv("TRAZR_JWT_ISSUER", "zzfuse-test")
 	t.Setenv("TRAZR_JWT_AUDIENCE", "zzfuse-test-client")
-	token, err := auth.GenerateJWTWithFullContext(7, "admin@example.test", "admin", "tenant-one", []string{"otel"}, []string{"admin"}, []string{"read"}, time.Hour, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	db, mock := sessionTestDatabase(t)
+	token := sessionTestToken(t, 7, "")
+	expectSessionLookup(mock, 7, []string{"admin"}, []string{"otel"})
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users", nil)
+	request = request.WithContext(auth.WithSessionDatabase(request.Context(), db))
 	request.Header.Set("Authorization", "Bearer "+token)
 	claims, err := ValidateJWTFromRequest(request)
 	if err != nil {
@@ -31,19 +30,21 @@ func TestValidatedJWTKeepsAuthorizationContext(t *testing.T) {
 		t.Fatal("validated token lost its authorization context")
 	}
 	recorder := httptest.NewRecorder()
+	expectSessionLookup(mock, 7, []string{"admin"}, []string{"otel"})
 	AdminOnlyMiddleware(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })(recorder, request)
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("verified admin token rejected: status %d", recorder.Code)
 	}
-	nonadmin, err := auth.GenerateJWTWithFullContext(8, "user@example.test", "user", "tenant-one", []string{"otel"}, []string{"user"}, nil, time.Hour, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	nonadmin := sessionTestToken(t, 8, "")
 	for _, tc := range []struct {
 		token  string
 		status int
 	}{{nonadmin, http.StatusForbidden}, {"invalid", http.StatusUnauthorized}, {"", http.StatusUnauthorized}} {
 		r := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users?role=admin", nil)
+		r = r.WithContext(auth.WithSessionDatabase(r.Context(), db))
+		if tc.token == nonadmin {
+			expectSessionLookup(mock, 8, []string{"user"}, []string{"otel"})
+		}
 		if tc.token != "" {
 			r.Header.Set("Authorization", "Bearer "+tc.token)
 		}

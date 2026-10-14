@@ -2,9 +2,12 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"maps"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +43,8 @@ type WorkerConfig struct {
 	TemplateMetadata map[string][]string
 	DatabaseClient   OtelDatabaseClient
 	EventBus         event.EventBusInterface
+	FetchOptions     *FetchOptions
+	BatchSize        int
 }
 
 // Validate validates the worker configuration
@@ -65,6 +70,15 @@ func (wc *WorkerConfig) Validate() error {
 	// }
 	if wc.DatabaseClient == nil {
 		return fmt.Errorf("database client cannot be nil")
+	}
+	if db, ok := wc.DatabaseClient.(*OtelSQLDatabaseClient); ok {
+		store, ok := wc.VectorStore.VectorStore.(interface{ SupportsEmbeddingClaims(*sql.DB) bool })
+		if !ok || !store.SupportsEmbeddingClaims(db.SQLDatabaseClient.DB) {
+			return fmt.Errorf("durable embedding workers require local PostgreSQL vector storage")
+		}
+		if wc.SignalType == SignalTypeSpans && wc.MappingConfig.ProcessingMode == "template_plus" {
+			return fmt.Errorf("durable template_plus requires a secondary-effect protocol and is unsupported")
+		}
 	}
 	// EventBus can be nil during architectural transition
 	// if wc.EventBus == nil {
@@ -335,7 +349,7 @@ func buildWorkerConfigs(
 	templateRepo TemplateRepo,
 ) ([]*WorkerConfig, error) {
 	// Get database signal types (master filter)
-	databaseTypes := getSignalTypesFromDatabaseFilter(databaseFilter)
+	databaseTypes := filterValidSignalTypes(getSignalTypesFromDatabaseFilter(databaseFilter))
 	logger.Debug("Building worker configs",
 		zap.Int("vector_stores", len(vectorStores)),
 		zap.Int("processor_mappings", len(processorMappings)),
@@ -447,6 +461,8 @@ func buildWorkerConfigs(
 				TemplateMetadata: templateMetadata,
 				DatabaseClient:   dbClient,
 				EventBus:         eventBus,
+				BatchSize:        DefaultWorkerBatchSize,
+				FetchOptions:     workerFetchOptions(databaseFilter),
 			})
 		}
 	}
@@ -456,6 +472,10 @@ func buildWorkerConfigs(
 
 // createWorkerFromConfig creates an embedding worker from a WorkerConfig
 func createWorkerFromConfig(config *WorkerConfig, logger util.Logger) *EmbeddingWorker {
+	batchSize := config.BatchSize
+	if batchSize <= 0 {
+		batchSize = DefaultWorkerBatchSize
+	}
 	// Create vector store config for this worker
 	vectorStoreConfig := &VectorStoreConfig{
 		VectorStoreKey:   config.VectorStoreKey,
@@ -480,7 +500,8 @@ func createWorkerFromConfig(config *WorkerConfig, logger util.Logger) *Embedding
 		config.DatabaseClient,
 		logger,
 		config.VectorStore.VectorStore,
-		WithBatchSize(DefaultWorkerBatchSize),
+		WithBatchSize(batchSize),
+		WithWorkerFetchOptions(config.FetchOptions),
 		WithConfigID(config.EmbeddingConfig.ID),
 		WithSignalType(config.SignalType),
 		WithEmbeddingSchema(config.SchemaName),
@@ -588,15 +609,25 @@ func stringSliceContains(slice []string, item string) bool {
 
 // isValidSignalType checks if a signal type is valid
 func isValidSignalType(signalType string) bool {
-	validTypes := []string{"logs", "traces", "metrics", "profiles"}
-	return stringSliceContains(validTypes, signalType)
+	return stringSliceContains(AllSupportedSignalTypes(), signalType)
 }
 
 // filterValidSignalTypes returns only valid signal types from a slice
 func filterValidSignalTypes(signalTypes []string) []string {
 	var validSignals []string
 	for _, signalType := range signalTypes {
-		if isValidSignalType(signalType) {
+		if signalType == "traces" {
+			signalType = SignalTypeSpans
+		}
+		if signalType == "metrics" {
+			for _, metric := range []string{SignalTypeGaugeMetrics, SignalTypeSumMetrics, SignalTypeHistogramMetrics, SignalTypeSummaryMetrics, SignalTypeExponentialHistogramMetrics} {
+				if !stringSliceContains(validSignals, metric) {
+					validSignals = append(validSignals, metric)
+				}
+			}
+			continue
+		}
+		if isValidSignalType(signalType) && !stringSliceContains(validSignals, signalType) {
 			validSignals = append(validSignals, signalType)
 		}
 	}
@@ -628,7 +659,7 @@ func NewServiceWorkerManager(deps WorkerManagerDependencies, eventBusProvider Ev
 }
 
 // ReloadSchemaWorkers reloads workers for a specific schema with new configurations
-func (swm *ServiceWorkerManager) ReloadSchemaWorkers(ctx context.Context, schemaName string, configMgrs *ConfigManagers, enabledProcessors []*dbconfig.ProcessorMappingConfig, logger util.Logger, signalTypes []string, startTime, stopTime *time.Time) error {
+func (swm *ServiceWorkerManager) ReloadSchemaWorkers(ctx context.Context, schemaName string, configMgrs *ConfigManagers, enabledProcessors []*dbconfig.ProcessorMappingConfig, logger util.Logger, signalTypes []string, startTime, stopTime *time.Time, requestedBatchSize ...int) error {
 	// Get pools through interface method
 	pools := swm.deps.Pools()
 	resources, exists := pools[schemaName]
@@ -644,6 +675,7 @@ func (swm *ServiceWorkerManager) ReloadSchemaWorkers(ctx context.Context, schema
 	dbClient := NewUnifiedSQLDatabaseClient(mainDB)
 	embeddingConfigs := make(map[string]dbconfig.EmbeddingConfig)
 	processorMappings := make(map[string]dbconfig.ProcessorMappingConfig)
+	vectorConfigs := make(map[string]*dbconfig.VectorStoreConfig)
 
 	// Collect configurations for this schema
 	var configErrors []string
@@ -663,12 +695,10 @@ func (swm *ServiceWorkerManager) ReloadSchemaWorkers(ctx context.Context, schema
 			if len(signalTypes) > 0 {
 				// Check if this mapping's signal type is in the filter list
 				found := false
-				for _, signalType := range signalTypes {
-					if mapping.EmbeddingFilter != nil {
-						if filterSignalType, ok := mapping.EmbeddingFilter["signal_type"].(string); ok && filterSignalType == signalType {
-							found = true
-							break
-						}
+				for _, signalType := range filterValidSignalTypes(signalTypes) {
+					if stringSliceContains(filterValidSignalTypes(getSignalTypesFromEmbeddingFilter(mapping.EmbeddingFilter)), signalType) {
+						found = true
+						break
 					}
 				}
 				if !found {
@@ -687,6 +717,7 @@ func (swm *ServiceWorkerManager) ReloadSchemaWorkers(ctx context.Context, schema
 				expectedKey := fmt.Sprintf("%s_%s", mapping.Name, vsConfig.Name)
 				if expectedKey == vectorStoreKey {
 					processorMappings[vectorStoreKey] = *mapping
+					vectorConfigs[vectorStoreKey] = vsConfig
 					embConfig, err := configMgrs.Embedding.GetByID(ctx, vsConfig.EmbeddingID)
 					if err != nil {
 						configErrors = append(configErrors, fmt.Sprintf("failed to get embedding config %d: %v", vsConfig.EmbeddingID, err))
@@ -702,10 +733,14 @@ func (swm *ServiceWorkerManager) ReloadSchemaWorkers(ctx context.Context, schema
 	// Log configuration collection errors
 	if len(configErrors) > 0 {
 		logger.Error("Configuration collection errors", "schema", schemaName, "errors", configErrors)
+		return fmt.Errorf("invalid embedding worker configuration: %s", strings.Join(configErrors, "; "))
 	}
 
 	// Build time-based database filter for worker queries
 	databaseFilter := map[string]interface{}{}
+	if len(signalTypes) > 0 {
+		databaseFilter["signal_type"] = strings.Join(filterValidSignalTypes(signalTypes), ",")
+	}
 	if startTime != nil {
 		databaseFilter["start_time"] = *startTime
 	}
@@ -720,6 +755,28 @@ func (swm *ServiceWorkerManager) ReloadSchemaWorkers(ctx context.Context, schema
 	if err != nil {
 		return fmt.Errorf("failed to build worker configs: %w", err)
 	}
+	for _, config := range newConfigs {
+		vs := vectorConfigs[config.VectorStoreKey]
+		if vs.BatchSize > 0 {
+			config.BatchSize = vs.BatchSize
+		}
+		if len(requestedBatchSize) > 0 && requestedBatchSize[0] != 0 {
+			config.BatchSize = requestedBatchSize[0]
+		}
+		if config.BatchSize < 1 || config.BatchSize > 10000 {
+			return fmt.Errorf("embedding batch size must be between 1 and 10000")
+		}
+		if err := validateFetchBounds(config.FetchOptions); err != nil {
+			return err
+		}
+		// JSON sorts map keys. All immutable provider/template/mapping values
+		// participate, so changed configuration never reuses an old vector key.
+		version, err := json.Marshal([]interface{}{config.MappingConfig, config.EmbeddingConfig, vs, config.TemplateContent, config.TemplateMetadata})
+		if err != nil {
+			return fmt.Errorf("fingerprint embedding configuration: %w", err)
+		}
+		config.FetchOptions.ConfigurationVersion = fmt.Sprintf("%x", sha256.Sum256(version))
+	}
 
 	// Initialize worker manager if not exists
 	if resources.WorkerManager == nil {
@@ -728,6 +785,17 @@ func (swm *ServiceWorkerManager) ReloadSchemaWorkers(ctx context.Context, schema
 
 	// Reload workers with new configurations
 	return resources.WorkerManager.ReloadWorkers(ctx, newConfigs)
+}
+
+func workerFetchOptions(filter map[string]interface{}) *FetchOptions {
+	options := DefaultFetchOptions()
+	if t, ok := filter["start_time"].(time.Time); ok {
+		options.StartTime = &t
+	}
+	if t, ok := filter["stop_time"].(time.Time); ok {
+		options.StopTime = &t
+	}
+	return options
 }
 
 // StopAllWorkers stops all workers across all schemas

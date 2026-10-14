@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/dghubble/sessions"
 	pgstore "github.com/medxops/trazr-otel/pkg/auth/storage/pg"
@@ -82,6 +83,10 @@ func GitHubLoginHandler(w http.ResponseWriter, r *http.Request) {
 func GitHubCallbackHandler(db *sql.DB, jwtIssuer func(userID int64, email string) (string, error), exchangeFunc func(ctx context.Context, code string) (*oauth2.Token, error), httpClient *http.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		if db == nil {
+			http.Error(w, "OAuth unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		code := r.URL.Query().Get("code")
 		state := r.URL.Query().Get("state")
 		stateCookie, _ := r.Cookie("oauth_state")
@@ -127,34 +132,40 @@ func GitHubCallbackHandler(db *sql.DB, jwtIssuer func(userID int64, email string
 			http.Error(w, "invalid user info", http.StatusInternalServerError)
 			return
 		}
-		// If email is empty, fetch from /emails
-		if ghUser.Email == "" {
-			emailResp, err := client.Get("https://api.github.com/user/emails")
-			if err == nil && emailResp.StatusCode == 200 {
-				var emails []struct {
-					Email    string `json:"email"`
-					Primary  bool   `json:"primary"`
-					Verified bool   `json:"verified"`
-				}
-				if err := json.NewDecoder(emailResp.Body).Decode(&emails); err == nil {
-					for _, e := range emails {
-						if e.Primary && e.Verified {
-							ghUser.Email = e.Email
-							break
-						}
-					}
-				}
+		// Account linking always uses a provider-verified primary address,
+		// including when /user supplies a public but unverified email field.
+		emailResp, err := client.Get("https://api.github.com/user/emails")
+		if err != nil || emailResp.StatusCode != http.StatusOK {
+			if emailResp != nil {
 				emailResp.Body.Close()
+			}
+			http.Error(w, "verified email unavailable", http.StatusUnauthorized)
+			return
+		}
+		var emails []struct {
+			Email    string `json:"email"`
+			Primary  bool   `json:"primary"`
+			Verified bool   `json:"verified"`
+		}
+		err = json.NewDecoder(emailResp.Body).Decode(&emails)
+		emailResp.Body.Close()
+		ghUser.Email = ""
+		if err == nil {
+			for _, email := range emails {
+				if email.Primary && email.Verified {
+					ghUser.Email = email.Email
+					break
+				}
 			}
 		}
 		if ghUser.Email == "" {
-			http.Error(w, "email not available from GitHub", http.StatusUnauthorized)
+			http.Error(w, "verified email unavailable", http.StatusUnauthorized)
 			return
 		}
 		// Find or create/link user within a transaction
 		var userID int64
 		var exists bool
-		err = db.QueryRowContext(ctx, fmt.Sprintf("SELECT user_id FROM %s.auth_identities WHERE provider=$1 AND provider_user_id=$2", pgstore.DefaultConfigSchema), "github", fmt.Sprint(ghUser.ID)).Scan(&userID)
+		err = db.QueryRowContext(ctx, fmt.Sprintf("SELECT user_id FROM %s.auth_user_identities WHERE provider=$1 AND provider_user_id=$2", pgstore.DefaultConfigSchema), "github", fmt.Sprint(ghUser.ID)).Scan(&userID)
 		if err == sql.ErrNoRows {
 			tx, txErr := db.BeginTx(ctx, nil)
 			if txErr != nil {
@@ -171,7 +182,7 @@ func GitHubCallbackHandler(db *sql.DB, jwtIssuer func(userID int64, email string
 				}
 				userID = newUserID
 			}
-			_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.auth_identities (user_id, provider, provider_user_id, email) VALUES ($1, $2, $3, $4)", pgstore.DefaultConfigSchema), userID, "github", fmt.Sprint(ghUser.ID), ghUser.Email)
+			_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.auth_user_identities (user_id, provider, provider_user_id, email) VALUES ($1, $2, $3, $4)", pgstore.DefaultConfigSchema), userID, "github", fmt.Sprint(ghUser.ID), ghUser.Email)
 			if err != nil {
 				http.Error(w, "failed to link identity", http.StatusInternalServerError)
 				return
@@ -187,7 +198,7 @@ func GitHubCallbackHandler(db *sql.DB, jwtIssuer func(userID int64, email string
 			return
 		}
 		// Issue JWT
-		token, err := jwtIssuer(userID, ghUser.Email)
+		token, err := IssueSessionJWT(ctx, db, userID, 24*time.Hour, nil, nil, nil)
 		if err != nil {
 			http.Error(w, "failed to issue token", http.StatusInternalServerError)
 			return

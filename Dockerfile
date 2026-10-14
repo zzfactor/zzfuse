@@ -6,12 +6,15 @@ COPY trazr-otel/ ./trazr-otel/
 COPY trazrexporter/ ./trazrexporter/
 COPY trazrextension/ ./trazrextension/
 COPY trazrprocessor/ ./trazrprocessor/
+COPY zzfuseauth/ ./zzfuseauth/
 WORKDIR /app/trazr-otel
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -trimpath -o /out/otelcol-custom .
+RUN mkdir -m 0700 -p /out/queue && chown 65532:65532 /out/queue
 
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
 WORKDIR /
 COPY --from=build /out/otelcol-custom /otelcol-custom
 COPY config.yaml /etc/otelcol/config.yaml
+COPY --from=build --chown=65532:65532 /out/queue /var/lib/zzfuse/queue
 USER nonroot:nonroot
 ENTRYPOINT ["/otelcol-custom", "--feature-gates=+service.profilesSupport", "--config", "/etc/otelcol/config.yaml"]

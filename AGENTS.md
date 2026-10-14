@@ -12,7 +12,7 @@ Use the project skill at [.agents/skills/zzfuse-development/SKILL.md](.agents/sk
 - Authentication: `pkg/auth/`; shared defaults: `pkg/config/`.
 - Frontend: `frontend/`; Python embedding/Chroma: `services/`; MCP: `trazr-mcp/`.
 
-`TrazrExtension` owns the shared service manager. Exporters borrow it through the Collector host and readiness interface. Authorize a requested schema before HTTP operations, WebSocket upgrade/preload, or subscriptions; carry that schema into event filters. Empty schema grants currently mean unrestricted access.
+`TrazrExtension` owns the shared service manager. Exporters borrow it through the Collector host and readiness interface. Authorize a requested schema before HTTP operations, WebSocket upgrade/preload, or subscriptions; carry that schema into event filters. Empty schema grants deny nonadministrators. Validate account JWTs against the instance-owned database, including version, current roles/grants and JTI/API-key revocation; signature-only validation is not route authorization. OTLP destinations come from `zzfuse_auth` credentials, never producer service labels. Preserve signed tenant receipts through persistent queues; context-dropping batching is unsupported. Durable workers use PostgreSQL leases and fenced vector/receipt commits without holding transactions during inference.
 
 ## Checks and documentation
 

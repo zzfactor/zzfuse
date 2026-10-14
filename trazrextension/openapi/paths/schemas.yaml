@@ -4,7 +4,7 @@ paths:
       tags:
         - Configuration
       summary: List available schemas
-      description: Retrieve a list of all available database schemas and their configurations
+      description: Retrieve enabled database schemas permitted by current account grants. Empty grants return an empty list for nonadministrators.
       responses:
         '200':
           description: Successfully retrieved schemas
