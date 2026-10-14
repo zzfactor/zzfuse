@@ -1,0 +1,17 @@
+ocb
+.git
+.local
+**/.env
+**/.env.*
+**/.it.env
+**/node_modules
+**/.next
+**/.venv
+**/venv
+**/__pycache__
+**/vendor
+logs
+trazr-otel/trazr-otel
+trazr-otel/builder
+trazr-mcp/trazr-mcp
+*.test

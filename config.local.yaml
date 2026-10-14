@@ -1,0 +1,62 @@
+extensions:
+  trazr: {}
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+processors:
+  batch:
+    send_batch_size: 1024
+    timeout: 250ms
+    send_batch_max_size: 1024
+  trazr:
+
+exporters:
+  trazr:
+    sending_queue:
+      enabled: true
+      queue_size: 10000
+      num_consumers: 1
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+ 
+  file:
+    path: ./logs/trazr2.log
+  debug:
+    verbosity: detailed
+
+service:
+  extensions: [trazr]
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 9999
+  pipelines:
+    profiles:
+      receivers: [otlp]
+      # Batch and the custom trazr processor do not support profiles.
+      processors: []
+      exporters: [trazr]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [trazr, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [trazr, debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [trazr, debug]

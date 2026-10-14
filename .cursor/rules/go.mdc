@@ -1,0 +1,21 @@
+---
+description: Go implementation conventions for zzfuse modules
+globs: "**/*.go"
+alwaysApply: false
+---
+# Go Conventions
+
+- Follow the existing module layout and boundaries; group related handlers, services, and repositories by feature.
+- Prefer small interfaces and explicit constructor injection for external dependencies. Preserve the extension-owned service manager lifecycle.
+- Format changed files with `gofmt`; use existing lint configuration when available.
+- Handle errors explicitly and wrap internal errors with context using `fmt.Errorf("context: %w", err)`.
+- Translate internal failures into consistent API errors without exposing secrets or raw database errors.
+- Validate external inputs and enforce roles, scopes, and schema access before using dependencies.
+- Propagate `context.Context` through database calls, external requests, background jobs, and subscriptions.
+- Coordinate goroutine cancellation and protect shared mutable state. Close only resources owned by the component.
+- Use structured logs with the existing logger and keep secrets and sensitive payloads out of logs and telemetry attributes.
+- Keep metric cardinality bounded and preserve trace context across service boundaries.
+- Add behavioral tests for meaningful changes, using mocks for external infrastructure. Do not make every logging call a required mock expectation unless it is the behavior under test.
+- Use table-driven tests where useful. Run tests in parallel only when they do not modify global state or environment variables.
+- Keep external integration tests explicitly gated and use dedicated credentials and infrastructure.
+- Update manifests, checksums, generated collector configuration, and vendor trees coherently when dependencies change.

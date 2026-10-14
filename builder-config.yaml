@@ -1,0 +1,75 @@
+dist:
+  name: trazr-otel
+  description: Custom OTel distribution for TRAZR
+  output_path: ./trazr-otel
+  go: "1.27.2"
+
+exporters:
+  - gomod:
+      github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter v0.163.0
+  - gomod:
+      github.com/open-telemetry/opentelemetry-collector-contrib/exporter/fileexporter v0.163.0
+  - gomod:
+      go.opentelemetry.io/collector/exporter/debugexporter v0.163.0
+  - gomod:
+      github.com/medxops/trazr-otel/trazrexporter v0.1.0
+    import: github.com/medxops/trazr-otel/trazrexporter
+    name: trazr
+
+processors:
+  - gomod:
+      github.com/medxops/trazr-otel/trazrprocessor v0.1.0
+    import: github.com/medxops/trazr-otel/trazrprocessor
+    name: trazr
+  - gomod:
+      go.opentelemetry.io/collector/processor/batchprocessor v0.163.0
+  - gomod:
+      go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.163.0
+  - gomod:
+      github.com/open-telemetry/opentelemetry-collector-contrib/processor/redactionprocessor v0.163.0
+  - gomod:
+      github.com/open-telemetry/opentelemetry-collector-contrib/processor/spanprocessor v0.163.0
+  - gomod:
+      github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.163.0
+
+receivers:
+  - gomod:
+      go.opentelemetry.io/collector/receiver/otlpreceiver v0.163.0
+
+extensions:
+  - gomod:
+      github.com/medxops/trazr-otel/trazrextension v0.1.0
+    import: github.com/medxops/trazr-otel/trazrextension
+    name: trazr
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.163.0
+
+providers:
+  - gomod: go.opentelemetry.io/collector/confmap/provider/envprovider v1.69.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/fileprovider v1.69.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/httpprovider v1.69.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/httpsprovider v1.69.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.69.0
+
+replaces:
+  - github.com/medxops/trazr-otel/trazrprocessor => ../trazrprocessor
+  - github.com/medxops/trazr-otel/trazrextension => ../trazrextension
+  - github.com/medxops/trazr-otel/trazrexporter => ../trazrexporter
+  - github.com/medxops/trazr-otel/pkg/auth => ../pkg/auth
+  - github.com/medxops/trazr-otel/pkg/util => ../pkg/util
+  - github.com/medxops/trazr-otel/pkg/repository => ../pkg/repository
+  - github.com/medxops/trazr-otel/pkg/metrics => ../pkg/metrics
+  - github.com/medxops/trazr-otel/pkg/event => ../pkg/event
+  - github.com/medxops/trazr-otel/pkg/config => ../pkg/config
+  # Preserve the current SDK release when regenerating Collector transitive defaults.
+  - go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.21.0 => go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.23.0
+  - go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.21.0 => go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.23.0
+  - go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.45.0 => go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.47.0
+  - go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.45.0 => go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.47.0
+  - go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.45.0 => go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0
+  - go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.45.0 => go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.47.0
+  - go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0 => go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
+  - go.opentelemetry.io/otel/exporters/prometheus v0.67.0 => go.opentelemetry.io/otel/exporters/prometheus v0.69.0
+  - go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.21.0 => go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.23.0
+  - go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.45.0 => go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.47.0
+  - go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.45.0 => go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.47.0
+  - go.opentelemetry.io/otel/sdk/log v0.21.0 => go.opentelemetry.io/otel/sdk/log v1.47.0

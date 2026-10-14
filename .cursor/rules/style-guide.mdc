@@ -1,0 +1,17 @@
+---
+description: zzfuse identity, API contracts, and contributor conventions
+globs:
+alwaysApply: false
+---
+# zzfuse Project Conventions
+
+- The project is named zzfuse; its intended GitHub repository is `zzfactor/zzfuse`.
+- Runtime directories, executable names, Go module paths, component IDs, and `TRAZR_*` environment variables retain their legacy identity until a coordinated migration.
+- The backend is an OpenTelemetry Collector distribution with PostgreSQL/pgvector storage, an extension-owned service manager, and REST/WebSocket handlers.
+- Consult `CLAUDE.md` for module navigation and validated commands; do not introduce Encore annotations, clients, config loaders, or deployment commands.
+- Keep REST behavior consistent with routes registered in `trazrextension/extension.go` and `trazrextension/internal/*_routes.go`.
+- Use existing auth helpers for roles, scopes, and schema access. Preserve the current admin and unrestricted-schema policy.
+- Avoid exposing credentials, reset tokens, or internal database errors in API responses and logs.
+- Confirm that a backend route exists before connecting a frontend feature to it; the vector search route is currently disabled and arbitrary SQL queries have no registered endpoint.
+- Keep public-facing text in English and use periods, commas, or colons instead of em dashes.
+- Keep task lists accurate using the existing task-list policy.

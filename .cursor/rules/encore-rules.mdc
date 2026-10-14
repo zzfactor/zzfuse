@@ -1,0 +1,21 @@
+---
+description: Collector lifecycle and module validation rules, replacing obsolete Encore guidance
+globs: "**/*.go"
+alwaysApply: false
+---
+# OpenTelemetry Collector Backend
+
+zzfuse uses ordinary Go modules and the OpenTelemetry Collector component lifecycle.
+The historical filename is retained for existing references. Encore APIs and commands do not apply.
+
+- Run Go commands from the module containing the source. The repository root has no Go module or workspace.
+- Use `go test -mod=readonly -timeout 45s ./...` for isolated unit suites.
+- External integration tests require the `integration` build tag or explicit `TRAZR_IT=1`; use dedicated test infrastructure and explicit test credentials.
+- Initialize Collector test settings with a logger, meter provider, and tracer provider before constructing components.
+- `TrazrExtension` creates and owns the shared `ServiceResourceManager` through its factory.
+- Exporters discover `TrazrServiceProvider` through `Host.GetExtensions()`, wait for readiness, and reuse that manager.
+- Respect `Start`/`Shutdown` boundaries and request cancellation. Close subscriptions and owned resources during shutdown.
+- Keep related Collector core/contrib dependencies and `builder-config.yaml` compatible. Regenerate generated collector files when their registrations change.
+- Use the existing typed configuration, auth context, structured logging, and event bus interfaces.
+- Authorize the effective schema before any query, write, cursor, preload, or stream subscription. Populate stream schema filters so events from other schemas cannot be delivered.
+- Preserve legacy `TRAZR_*` environment variables, component IDs, and Go import paths unless an explicit compatibility migration is requested.

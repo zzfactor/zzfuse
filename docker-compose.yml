@@ -1,0 +1,116 @@
+name: zzfuse
+
+services:
+  database:
+    image: zzfuse-database:local
+    build: ./build/database
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-zzfuse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-zzfuse}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db_pg18:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  services:
+    image: zzfuse-services:local
+    build: ./services
+    environment:
+      USER_API_KEY: ${USER_API_KEY:?Set USER_API_KEY}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?Set ADMIN_API_KEY}
+      DEFAULT_MODEL_NAME: ${DEFAULT_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}
+      DEVICE: cpu
+      MAX_MODELS_IN_CACHE: ${MAX_MODELS_IN_CACHE:-2}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-1}
+    ports:
+      - "127.0.0.1:${EMBEDDING_PORT:-8000}:8000"
+    volumes:
+      - model_cache:/var/cache/zzfuse/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  nats:
+    image: nats:2.15.1-alpine@sha256:2ae57dfba3063d5e25fecb75256118c0882a1a2d2cf7d0fba17a7c701df956f6
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "127.0.0.1:${NATS_PORT:-4222}:4222"
+      - "127.0.0.1:${NATS_MONITOR_PORT:-8222}:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  collector:
+    image: zzfuse-collector:local
+    build: .
+    environment:
+      TRAZR_DB_HOST: database
+      TRAZR_DB_PORT: "5432"
+      TRAZR_DB_USER: ${POSTGRES_USER:-zzfuse}
+      TRAZR_DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      TRAZR_DB_NAME: ${POSTGRES_DB:-zzfuse}
+      TRAZR_DB_SSL_MODE: disable
+      TRAZR_JWT_SECRET: ${TRAZR_JWT_SECRET:?Set TRAZR_JWT_SECRET}
+      TRAZR_JWT_ISSUER: ${TRAZR_JWT_ISSUER:-zzfuse}
+      TRAZR_JWT_AUDIENCE: ${TRAZR_JWT_AUDIENCE:-zzfuse-clients}
+      TRAZR_BOOTSTRAP_USER: ${TRAZR_BOOTSTRAP_USER:-false}
+      TRAZR_BOOTSTRAP_USER_EMAIL: ${TRAZR_BOOTSTRAP_USER_EMAIL:-}
+      TRAZR_BOOTSTRAP_USER_PASSWORD: ${TRAZR_BOOTSTRAP_USER_PASSWORD:-}
+      TRAZR_BOOTSTRAP_USER_ROLE: ${TRAZR_BOOTSTRAP_USER_ROLE:-admin}
+      EVENT_BUS_TYPE: nats
+      NATS_URL: nats://nats:4222
+      TRAZR_SMTP_HOST: ${TRAZR_SMTP_HOST:-}
+      TRAZR_SMTP_PORT: ${TRAZR_SMTP_PORT:-587}
+      TRAZR_SMTP_USERNAME: ${TRAZR_SMTP_USERNAME:-}
+      TRAZR_SMTP_PASSWORD: ${TRAZR_SMTP_PASSWORD:-}
+      TRAZR_SMTP_FROM: ${TRAZR_SMTP_FROM:-}
+      TRAZR_SMTP_TLS_MODE: ${TRAZR_SMTP_TLS_MODE:-starttls}
+      TRAZR_SMTP_TIMEOUT: ${TRAZR_SMTP_TIMEOUT:-10s}
+      TRAZR_SMTP_CA_FILE: ${TRAZR_SMTP_CA_FILE:-}
+      TRAZR_PASSWORD_RESET_URL: ${TRAZR_PASSWORD_RESET_URL:-}
+    ports:
+      - "127.0.0.1:${OTLP_GRPC_PORT:-4317}:4317"
+      - "127.0.0.1:${OTLP_HTTP_PORT:-4318}:4318"
+      - "127.0.0.1:${API_PORT:-18888}:18888"
+    depends_on:
+      database:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    image: zzfuse-frontend:local
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      BACKEND_URL: http://collector:18888
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET}
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      collector:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  db_pg18:
+  model_cache:
+  nats_data:
