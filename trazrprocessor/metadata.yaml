@@ -1,0 +1,4 @@
+type: trazrprocessor
+name: trazrprocessor
+description: Custom processor for PHI/PII detection, obfuscation, and vectorization (Trazr example)
+stability: development 

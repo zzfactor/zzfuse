@@ -1,0 +1,117 @@
+paths:
+  /api/v1/profiles:
+    get:
+      tags:
+      - Profiles
+      summary: Retrieve profiles with pagination
+      description: Requires bearer authentication and access to the requested schema. Versioned rows expose the
+        complete OTLP JSON dictionary and exact base64 bytes; historical binary remains opaque.
+      parameters:
+      - name: start
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: end
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: last
+        in: query
+        schema:
+          type: string
+      - name: cursor
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 100
+          minimum: 1
+      - name: direction
+        in: query
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+      - name: service
+        in: query
+        schema:
+          type: string
+      - name: profile_type
+        in: query
+        schema:
+          type: string
+      - &id001
+        name: schema
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Profiles retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '../components/schemas.yaml#/components/schemas/ProfilesResponse'
+        '400':
+          description: Invalid query
+        '401':
+          description: Authentication required
+        '403':
+          description: Schema access denied
+        '422':
+          description: Invalid query parameters
+        '500':
+          description: Query failed
+    post:
+      tags:
+      - Profiles
+      summary: Insert one or more profile entries
+      description: Requires bearer authentication and schema access. Versioned payloads are validated before any
+        write; omitted version preserves legacy opaque input.
+      parameters:
+      - *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - $ref: '../components/schemas.yaml#/components/schemas/ProfileEntryDTO'
+              - type: array
+                items:
+                  $ref: '../components/schemas.yaml#/components/schemas/ProfileEntryDTO'
+                minItems: 1
+      responses:
+        '200':
+          description: Profiles inserted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ids:
+                    type: array
+                    items:
+                      type: integer
+                      format: int64
+                  status:
+                    type: string
+                    enum:
+                    - inserted
+                required:
+                - ids
+                - status
+        '400':
+          description: Invalid format, version, payload, or timestamp; no writes performed
+        '401':
+          description: Authentication required
+        '403':
+          description: Schema access denied
+        '500':
+          description: Insert failed

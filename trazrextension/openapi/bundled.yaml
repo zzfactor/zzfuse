@@ -1,0 +1,4744 @@
+openapi: 3.0.3
+info:
+  title: Trazr Modular API
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: http://localhost:18888
+  - url: https://{env}.api.example.com
+    variables:
+      env:
+        enum:
+          - dev
+          - staging
+          - prod
+        default: dev
+security:
+  - bearerAuth: []
+  - ApiKeyAuth: []
+tags:
+  - name: Configuration
+    description: Endpoints for managing user, organization, and project configurations.
+  - name: Realtime Streams
+    description: WebSocket endpoints for streaming live data.
+  - name: Notifications
+    description: Enqueue and manage user-targeted notifications.
+  - name: Logs
+    description: Log retrieval and cursor generation endpoints.
+  - name: Traces
+    description: Trace retrieval and cursor generation endpoints.
+  - name: Metrics
+    description: Metric retrieval and cursor generation endpoints.
+  - name: Vector Store
+    description: Vector similarity search endpoints.
+  - name: Runs
+    description: Run retrieval and management endpoints.
+  - name: Profiles
+    description: Profile retrieval and management endpoints.
+paths:
+  /api/v1/user/configs:
+    get:
+      tags:
+        - Configuration
+      summary: List user configs
+      operationId: userConfigsList
+      description: |
+        List config keys for the authenticated user with optional prefix filter and cursor-based pagination.
+        Security: Requires JWT (bearerAuth). The token must represent the calling user.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Prefix'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Direction'
+      responses:
+        '200':
+          description: List of user config entries
+          headers:
+            X-Next-Cursor:
+              $ref: '#/components/headers/X-Next-Cursor'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigListResult'
+              examples:
+                sample:
+                  value:
+                    Entries:
+                      - Key: theme
+                        UpdatedAt: '2025-08-19T12:35:56Z'
+                      - Key: notifications
+                        UpdatedAt: '2025-08-19T12:30:00Z'
+                    NextCursor: eyJvZmZzZXQiOiJ0aGVtZSJ9
+                    HasMore: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/user/configs/{key}:
+    get:
+      tags:
+        - Configuration
+      summary: Get a user config by key
+      operationId: userConfigsGet
+      description: |
+        Security: Requires JWT (bearerAuth). The token must represent the calling user.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Config entry
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+              examples:
+                sample:
+                  value:
+                    Key: theme
+                    Value:
+                      color: dark
+                      font: system
+                    ETag: '"3a7f-5c2"'
+                    CreatedAt: '2025-08-19T12:34:56Z'
+                    UpdatedAt: '2025-08-19T12:35:56Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Configuration
+      summary: Upsert a user config (replace)
+      operationId: userConfigsUpsert
+      description: |
+        Security: Requires JWT (bearerAuth). The token must represent the calling user.
+        Use If-Match with the previous ETag to ensure optimistic concurrency.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigUpsertRequest'
+      responses:
+        '200':
+          description: Upserted
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+        '201':
+          description: Created
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+    patch:
+      tags:
+        - Configuration
+      summary: Update a user config (deep-merge objects)
+      operationId: userConfigsPatch
+      description: |
+        Security: Requires JWT (bearerAuth). The token must represent the calling user.
+        Use If-Match with the previous ETag to ensure optimistic concurrency.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigPatchRequest'
+      responses:
+        '200':
+          description: Updated
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+    delete:
+      tags:
+        - Configuration
+      summary: Delete a user config
+      operationId: userConfigsDelete
+      description: |
+        Security: Requires JWT (bearerAuth). The token must represent the calling user.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/orgs/{org_id}/configs:
+    get:
+      tags:
+        - Configuration
+      summary: List org configs
+      operationId: orgConfigsList
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id scope/claim matching the path parameter.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Prefix'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Direction'
+      responses:
+        '200':
+          description: List
+          headers:
+            X-Next-Cursor:
+              $ref: '#/components/headers/X-Next-Cursor'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigListResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/orgs/{org_id}/configs/{key}:
+    get:
+      tags:
+        - Configuration
+      summary: Get an org config by key
+      operationId: orgConfigsGet
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id scope/claim matching the path parameter.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Config entry
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Configuration
+      summary: Upsert an org config (replace)
+      operationId: orgConfigsUpsert
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id scope/claim matching the path parameter.
+        Use If-Match with the previous ETag to ensure optimistic concurrency.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigUpsertRequest'
+      responses:
+        '200':
+          description: Upserted
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+        '201':
+          description: Created
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+    patch:
+      tags:
+        - Configuration
+      summary: Update an org config (deep-merge objects)
+      operationId: orgConfigsPatch
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id scope/claim matching the path parameter.
+        Use If-Match with the previous ETag to ensure optimistic concurrency.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigPatchRequest'
+      responses:
+        '200':
+          description: Updated
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+    delete:
+      tags:
+        - Configuration
+      summary: Delete an org config
+      operationId: orgConfigsDelete
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id scope/claim matching the path parameter.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/orgs/{org_id}/projects/{project_id}/configs:
+    get:
+      tags:
+        - Configuration
+      summary: List project configs
+      operationId: projectConfigsList
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id and project_id scopes/claims matching the path parameters.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Prefix'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Direction'
+      responses:
+        '200':
+          description: List
+          headers:
+            X-Next-Cursor:
+              $ref: '#/components/headers/X-Next-Cursor'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigListResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/orgs/{org_id}/projects/{project_id}/configs/{key}:
+    get:
+      tags:
+        - Configuration
+      summary: Get a project config by key
+      operationId: projectConfigsGet
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id and project_id scopes/claims matching the path parameters.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Config entry
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Configuration
+      summary: Upsert a project config (replace)
+      operationId: projectConfigsUpsert
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id and project_id scopes/claims matching the path parameters.
+        Use If-Match with the previous ETag to ensure optimistic concurrency.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigUpsertRequest'
+      responses:
+        '200':
+          description: Upserted
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+        '201':
+          description: Created
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+    patch:
+      tags:
+        - Configuration
+      summary: Update a project config (deep-merge objects)
+      operationId: projectConfigsPatch
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id and project_id scopes/claims matching the path parameters.
+        Use If-Match with the previous ETag to ensure optimistic concurrency.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigPatchRequest'
+      responses:
+        '200':
+          description: Updated
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+    delete:
+      tags:
+        - Configuration
+      summary: Delete a project config
+      operationId: projectConfigsDelete
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id and project_id scopes/claims matching the path parameters.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/stream/user/notifications:
+    get:
+      tags:
+        - Notifications
+        - Realtime Streams
+      summary: Stream user notifications (WebSocket)
+      operationId: userNotificationsStream
+      description: |
+        Security: Requires JWT (bearerAuth). The token must represent the subscribing user.
+        Streams user-targeted notifications in realtime.
+        Message types:
+          - {"type":"notification","topic":"...","data":{...},"ts":"RFC3339","id":"...","meta":{...},"seq":123}
+          - {"type":"ready"} after any optional preload completes
+          - {"type":"dropped","count":N} when messages are dropped due to backpressure
+        In-band control:
+          client → server: {"type":"set_filter","filter":{"topics":["mcp","alerts"]}}
+          server → client: {"type":"ack"} or {"type":"error","message":"..."}
+        Keepalive and ping/pong:
+          - Server auto-responds to pings and extends the read deadline on pong or ping.
+          - Optional server-initiated pings when configured.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Topics'
+        - $ref: '#/components/parameters/WaitForEstablished'
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade)
+        '200':
+          description: Example stream messages
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/WSNotification'
+                  - $ref: '#/components/schemas/WSReady'
+                  - $ref: '#/components/schemas/WSDropped'
+              examples:
+                notification:
+                  value:
+                    type: notification
+                    topic: alerts
+                    data:
+                      title: High CPU
+                      body: Server xyz is above 90%
+                    ts: '2025-08-19T12:40:00Z'
+                    id: evt_01HXYZABC456
+                    meta:
+                      priority: high
+                    seq: 12
+                ready:
+                  value:
+                    type: ready
+                dropped:
+                  value:
+                    type: dropped
+                    count: 3
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/stream/logs:
+    get:
+      tags:
+        - Logs
+        - Realtime Streams
+      summary: Stream logs in real-time (WebSocket)
+      operationId: streamLogs
+      description: |
+        Establishes a WebSocket connection for real-time log streaming with optional preloading and dynamic filtering.
+
+        **Connection Flow:**
+        1. Client connects with initial filters via query parameters
+        2. Optional preload of historical data (if cursor/time parameters provided)
+        3. Real-time streaming of new log entries matching filters
+        4. Dynamic filter updates via WebSocket messages
+
+        **WebSocket Messages:**
+        - **Incoming (Client → Server):**
+          - `{"type":"set_filter","filter":{...}}` - Update filters dynamically
+          - `{"type":"keepalive"}` - Keep connection alive
+        - **Outgoing (Server → Client):**
+          - Log entries as JSON objects
+          - `{"type":"ready"}` - Preload complete (if applicable)
+          - `{"type":"ack"}` - Filter update acknowledged
+          - `{"type":"error","message":"..."}` - Error messages
+          - `{"type":"dropped","count":N}` - Dropped message notification
+      parameters:
+        - $ref: '#/components/parameters/Start'
+        - $ref: '#/components/parameters/End'
+        - $ref: '#/components/parameters/Last'
+        - $ref: '#/components/parameters/StreamCursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Direction'
+        - $ref: '#/components/parameters/service'
+        - $ref: '#/components/parameters/ServiceNames'
+        - $ref: '#/components/parameters/ServiceNameLike'
+        - $ref: '#/components/parameters/ServiceNameRegex'
+        - $ref: '#/components/parameters/ServiceNamePrefix'
+        - $ref: '#/components/parameters/ServiceNameSuffix'
+        - $ref: '#/components/parameters/ServiceNameContains'
+        - $ref: '#/components/parameters/Schema'
+        - $ref: '#/components/parameters/Severity'
+        - $ref: '#/components/parameters/TimestampGte'
+        - $ref: '#/components/parameters/TimestampLte'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/AttrEq'
+        - $ref: '#/components/parameters/AttrIn'
+        - $ref: '#/components/parameters/AttrExists'
+        - $ref: '#/components/parameters/ResAttrEq'
+        - $ref: '#/components/parameters/ResAttrIn'
+        - $ref: '#/components/parameters/ResAttrExists'
+        - $ref: '#/components/parameters/WaitForEstablished'
+        - name: severity_min
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 24
+          description: Minimum severity level (inclusive)
+        - name: severity_max
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 24
+          description: Maximum severity level (inclusive)
+        - name: severity_text_in
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by specific severity text values
+        - name: severity_group_in
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - TRACE
+                - DEBUG
+                - INFO
+                - WARN
+                - ERROR
+                - FATAL
+          style: form
+          explode: true
+          description: Filter by severity groups
+        - name: q_mode
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - text
+              - regex
+            default: text
+          description: Query mode for text search
+        - name: q_flags
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Regex flags when q_mode=regex
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade successful)
+        '200':
+          description: Example stream messages and protocol documentation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  protocol:
+                    type: string
+                    example: WebSocket
+                  message_types:
+                    type: array
+                    items:
+                      type: string
+                    example:
+                      - log_entry
+                      - ready
+                      - ack
+                      - error
+                      - dropped
+              examples:
+                log_entry:
+                  summary: Log entry message
+                  value:
+                    id: 12345
+                    timestamp: '2024-01-01T12:00:00Z'
+                    service_name: web-frontend
+                    severity_text: INFO
+                    severity_number: 9
+                    body: User login successful
+                    attributes:
+                      user_id: user123
+                      session_id: sess456
+                ready_message:
+                  summary: Preload complete signal
+                  value:
+                    type: ready
+                filter_update:
+                  summary: Client filter update message
+                  value:
+                    type: set_filter
+                    filter:
+                      service_name_like: web-%
+                      severity_min: 8
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/stream/spans:
+    get:
+      tags:
+        - Traces
+        - Realtime Streams
+      summary: Stream traces/spans in real-time (WebSocket)
+      operationId: streamSpans
+      description: |
+        Establishes a WebSocket connection for real-time trace/span streaming with optional preloading and dynamic filtering.
+
+        **Connection Flow:**
+        1. Client connects with initial filters via query parameters
+        2. Optional preload of historical data (if cursor/time parameters provided)
+        3. Real-time streaming of new trace/span entries matching filters
+        4. Dynamic filter updates via WebSocket messages
+
+        **WebSocket Messages:**
+        - **Incoming (Client → Server):**
+          - `{"type":"set_filter","filter":{...}}` - Update filters dynamically
+          - `{"type":"keepalive"}` - Keep connection alive
+        - **Outgoing (Server → Client):**
+          - Trace/span entries as JSON objects
+          - `{"type":"ready"}` - Preload complete (if applicable)
+          - `{"type":"ack"}` - Filter update acknowledged
+          - `{"type":"error","message":"..."}` - Error messages
+          - `{"type":"dropped","count":N}` - Dropped message notification
+      parameters:
+        - $ref: '#/components/parameters/Start'
+        - $ref: '#/components/parameters/End'
+        - $ref: '#/components/parameters/Last'
+        - $ref: '#/components/parameters/StreamCursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Direction'
+        - $ref: '#/components/parameters/Service'
+        - $ref: '#/components/parameters/ServiceNames'
+        - $ref: '#/components/parameters/ServiceNameLike'
+        - $ref: '#/components/parameters/ServiceNameRegex'
+        - $ref: '#/components/parameters/ServiceNamePrefix'
+        - $ref: '#/components/parameters/ServiceNameSuffix'
+        - $ref: '#/components/parameters/ServiceNameContains'
+        - $ref: '#/components/parameters/Schema'
+        - $ref: '#/components/parameters/TimestampGte'
+        - $ref: '#/components/parameters/TimestampLte'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/AttrEq'
+        - $ref: '#/components/parameters/AttrIn'
+        - $ref: '#/components/parameters/AttrExists'
+        - $ref: '#/components/parameters/ResAttrEq'
+        - $ref: '#/components/parameters/ResAttrIn'
+        - $ref: '#/components/parameters/ResAttrExists'
+        - $ref: '#/components/parameters/WaitForEstablished'
+        - name: span_name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by span name
+        - name: trace_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by trace ID
+        - name: span_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by span ID
+        - name: parent_span_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by parent span ID
+        - name: span_kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - SPAN_KIND_UNSPECIFIED
+              - SPAN_KIND_INTERNAL
+              - SPAN_KIND_SERVER
+              - SPAN_KIND_CLIENT
+              - SPAN_KIND_PRODUCER
+              - SPAN_KIND_CONSUMER
+          description: Filter by span kind
+        - name: status_code
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - STATUS_CODE_UNSET
+              - STATUS_CODE_OK
+              - STATUS_CODE_ERROR
+          description: Filter by span status code
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade successful)
+        '200':
+          description: Example stream messages and protocol documentation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  protocol:
+                    type: string
+                    example: WebSocket
+                  message_types:
+                    type: array
+                    items:
+                      type: string
+                    example:
+                      - span_entry
+                      - ready
+                      - ack
+                      - error
+                      - dropped
+              examples:
+                span_entry:
+                  summary: Span entry message
+                  value:
+                    id: 12345
+                    timestamp: '2024-01-01T12:00:00Z'
+                    service_name: api-gateway
+                    span_name: GET /api/users
+                    trace_id: abc123def456
+                    span_id: span789
+                    parent_span_id: parent123
+                    span_kind: SPAN_KIND_SERVER
+                    status_code: STATUS_CODE_OK
+                    attributes:
+                      http.method: GET
+                      http.url: /api/users
+                ready_message:
+                  summary: Preload complete signal
+                  value:
+                    type: ready
+                filter_update:
+                  summary: Client filter update message
+                  value:
+                    type: set_filter
+                    filter:
+                      service_name_regex: ^api-.*
+                      span_kind: SPAN_KIND_SERVER
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/stream/metrics:
+    get:
+      tags:
+        - Metrics
+        - Realtime Streams
+      summary: Stream metrics in real-time (WebSocket)
+      operationId: streamMetrics
+      description: |
+        Establishes a WebSocket connection for real-time metric streaming with optional preloading and dynamic filtering.
+
+        **Connection Flow:**
+        1. Client connects with initial filters via query parameters
+        2. Optional preload of historical data (if cursor/time parameters provided)
+        3. Real-time streaming of new metric entries matching filters
+        4. Dynamic filter updates via WebSocket messages
+
+        **WebSocket Messages:**
+        - **Incoming (Client → Server):**
+          - `{"type":"set_filter","filter":{...}}` - Update filters dynamically
+          - `{"type":"keepalive"}` - Keep connection alive
+        - **Outgoing (Server → Client):**
+          - Metric entries as JSON objects
+          - `{"type":"ready"}` - Preload complete (if applicable)
+          - `{"type":"ack"}` - Filter update acknowledged
+          - `{"type":"error","message":"..."}` - Error messages
+          - `{"type":"dropped","count":N}` - Dropped message notification
+      parameters:
+        - $ref: '#/components/parameters/Start'
+        - $ref: '#/components/parameters/End'
+        - $ref: '#/components/parameters/Last'
+        - $ref: '#/components/parameters/StreamCursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Direction'
+        - $ref: '#/components/parameters/Service'
+        - $ref: '#/components/parameters/ServiceNames'
+        - $ref: '#/components/parameters/ServiceNameLike'
+        - $ref: '#/components/parameters/ServiceNameRegex'
+        - $ref: '#/components/parameters/ServiceNamePrefix'
+        - $ref: '#/components/parameters/ServiceNameSuffix'
+        - $ref: '#/components/parameters/ServiceNameContains'
+        - $ref: '#/components/parameters/Schema'
+        - $ref: '#/components/parameters/TimestampGte'
+        - $ref: '#/components/parameters/TimestampLte'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/AttrEq'
+        - $ref: '#/components/parameters/AttrIn'
+        - $ref: '#/components/parameters/AttrExists'
+        - $ref: '#/components/parameters/ResAttrEq'
+        - $ref: '#/components/parameters/ResAttrIn'
+        - $ref: '#/components/parameters/ResAttrExists'
+        - $ref: '#/components/parameters/WaitForEstablished'
+        - name: metric_name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by metric name
+        - name: unit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by metric unit
+        - name: description
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by metric description
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade successful)
+        '200':
+          description: Example stream messages and protocol documentation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  protocol:
+                    type: string
+                    example: WebSocket
+                  message_types:
+                    type: array
+                    items:
+                      type: string
+                    example:
+                      - metric_entry
+                      - ready
+                      - ack
+                      - error
+                      - dropped
+              examples:
+                gauge_entry:
+                  summary: Gauge metric entry
+                  value:
+                    id: 12345
+                    timestamp: '2024-01-01T12:00:00Z'
+                    service_name: api-gateway
+                    metric_name: cpu_usage_percent
+                    metric_type: gauge
+                    unit: percent
+                    value: 75.5
+                    attributes:
+                      host: server-01
+                      environment: production
+                sum_entry:
+                  summary: Sum metric entry
+                  value:
+                    id: 12346
+                    timestamp: '2024-01-01T12:00:00Z'
+                    service_name: payment-service
+                    metric_name: requests_total
+                    metric_type: sum
+                    unit: '1'
+                    value: 1500
+                    attributes:
+                      method: POST
+                      status: '200'
+                ready_message:
+                  summary: Preload complete signal
+                  value:
+                    type: ready
+                filter_update:
+                  summary: Client filter update message
+                  value:
+                    type: set_filter
+                    filter:
+                      service_name_contains: payment
+                      metric_type: gauge
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/stream/metrics/sum:
+    get:
+      tags:
+        - Metrics
+        - Realtime Streams
+      summary: Stream sum metrics in real-time (WebSocket)
+      operationId: streamSumMetrics
+      description: |
+        Establishes a WebSocket connection for real-time sum metric streaming with optional preloading and dynamic filtering.
+        Specialized endpoint for sum-type metrics only.
+      parameters:
+        - $ref: '#/components/parameters/Start'
+        - $ref: '#/components/parameters/End'
+        - $ref: '#/components/parameters/Last'
+        - $ref: '#/components/parameters/StreamCursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Direction'
+        - $ref: '#/components/parameters/Service'
+        - $ref: '#/components/parameters/ServiceNames'
+        - $ref: '#/components/parameters/ServiceNameLike'
+        - $ref: '#/components/parameters/ServiceNameRegex'
+        - $ref: '#/components/parameters/ServiceNamePrefix'
+        - $ref: '#/components/parameters/ServiceNameSuffix'
+        - $ref: '#/components/parameters/ServiceNameContains'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/schema'
+        - $ref: '#/components/parameters/WaitForEstablished'
+        - name: metric_name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by metric name
+        - name: unit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by metric unit
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade successful)
+        '200':
+          description: Example stream messages and protocol documentation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  protocol:
+                    type: string
+                    example: WebSocket
+                  message_types:
+                    type: array
+                    items:
+                      type: string
+                    example:
+                      - sum_metric_entry
+                      - ready
+                      - ack
+                      - error
+                      - dropped
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/user/notifications:
+    post:
+      tags:
+        - Notifications
+      summary: Enqueue a user notification
+      operationId: userNotificationsEnqueue
+      description: |
+        Security: Requires JWT (bearerAuth). Obtain a JWT via normal login
+        or by exchanging an API key at /api/v1/auth/apikeys/exchange.
+        Enqueues a notification scoped by the caller's JWT (org/project as applicable).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationEnqueueRequest'
+      responses:
+        '200':
+          description: Enqueued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationEnqueueResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/logs:
+    get:
+      tags:
+        - Logs
+      summary: Query logs
+      description: Retrieve logs with filtering, pagination, and cursor support
+      parameters:
+        - $ref: '#/components/parameters/Start'
+        - $ref: '#/components/parameters/End'
+        - $ref: '#/components/parameters/Last'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Direction'
+        - $ref: '#/components/parameters/DirectionResults'
+        - $ref: '#/components/parameters/Service'
+        - $ref: '#/components/parameters/ServiceNames'
+        - $ref: '#/components/parameters/ServiceNameLike'
+        - $ref: '#/components/parameters/ServiceNameRegex'
+        - $ref: '#/components/parameters/ServiceNamePrefix'
+        - $ref: '#/components/parameters/ServiceNameSuffix'
+        - $ref: '#/components/parameters/ServiceNameContains'
+        - $ref: '#/components/parameters/Schema'
+        - $ref: '#/components/parameters/Severity'
+        - $ref: '#/components/parameters/TimestampGte'
+        - $ref: '#/components/parameters/TimestampLte'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/CountOnly'
+        - $ref: '#/components/parameters/AttrEq'
+        - $ref: '#/components/parameters/AttrIn'
+        - $ref: '#/components/parameters/AttrExists'
+        - $ref: '#/components/parameters/ResAttrEq'
+        - $ref: '#/components/parameters/ResAttrIn'
+        - $ref: '#/components/parameters/ResAttrExists'
+      responses:
+        '200':
+          description: Successfully retrieved logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags:
+        - Logs
+      summary: Insert log entries
+      description: Insert one or more log entries into the specified schema
+      parameters:
+        - $ref: '#/components/parameters/Schema'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/LogEntryResponse'
+            example:
+              - timestamp: '2024-01-15T10:30:00Z'
+                service_name: api-gateway
+                severity_text: info
+                body: Request processed successfully
+                trace_id: abc123def456
+                span_id: xyz789
+      responses:
+        '201':
+          description: Log entries created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ids:
+                    type: array
+                    items:
+                      type: string
+                    description: Array of created log entry IDs
+                  count:
+                    type: integer
+                    description: Number of entries created
+                example:
+                  ids:
+                    - '123456'
+                    - '123457'
+                    - '123458'
+                  count: 3
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/logs/{id}:
+    get:
+      tags:
+        - Logs
+      summary: Retrieve a specific log by ID
+      description: Fetch a single log entry by its unique identifier
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Log entry ID
+        - $ref: '#/components/parameters/Schema'
+      responses:
+        '200':
+          description: Successfully retrieved log
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogEntryResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/logs/cursor:
+    get:
+      tags:
+        - Logs
+      summary: Generate cursor for offset position
+      description: Generate a cursor for a specific offset position in the log dataset, enabling efficient "jump to middle" functionality
+      parameters:
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Service'
+        - $ref: '#/components/parameters/Severity'
+        - $ref: '#/components/parameters/TimestampGte'
+        - $ref: '#/components/parameters/TimestampLte'
+      responses:
+        '200':
+          description: Successfully generated cursor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogsResponse'
+        '400':
+          description: Bad Request - Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_offset:
+                  summary: Invalid offset parameter
+                  value:
+                    error: invalid_parameter
+                    message: offset must be a non-negative integer
+                    details:
+                      parameter: offset
+                      value: '-100'
+        '404':
+          description: Position not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                offset_exceeds_dataset:
+                  summary: Offset exceeds dataset size
+                  value:
+                    error: position_not_found
+                    message: offset 50000 exceeds dataset size of 25000 entries
+                    details:
+                      requested_offset: 50000
+                      max_offset: 24999
+                      total_count: 25000
+        '422':
+          description: Unprocessable Entity - Invalid filter criteria
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_filter:
+                  summary: No entries match filter criteria
+                  value:
+                    error: invalid_filter
+                    message: no entries match the specified filter criteria
+                    details:
+                      applied_filters:
+                        service: nonexistent-service
+                        severity: debug
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/traces:
+    get:
+      tags:
+        - Traces
+      summary: Retrieve traces with pagination
+      description: Fetch traces with cursor-based pagination and filtering
+      parameters:
+        - $ref: '#/components/parameters/Start'
+        - $ref: '#/components/parameters/End'
+        - $ref: '#/components/parameters/Last'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Direction'
+        - $ref: '#/components/parameters/DirectionResults'
+        - $ref: '#/components/parameters/Service'
+        - $ref: '#/components/parameters/ServiceNames'
+        - $ref: '#/components/parameters/ServiceNameLike'
+        - $ref: '#/components/parameters/ServiceNameRegex'
+        - $ref: '#/components/parameters/ServiceNamePrefix'
+        - $ref: '#/components/parameters/ServiceNameSuffix'
+        - $ref: '#/components/parameters/ServiceNameContains'
+        - $ref: '#/components/parameters/Schema'
+        - $ref: '#/components/parameters/TimestampGte'
+        - $ref: '#/components/parameters/TimestampLte'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/CountOnly'
+        - $ref: '#/components/parameters/AttrEq'
+        - $ref: '#/components/parameters/AttrIn'
+        - $ref: '#/components/parameters/AttrExists'
+        - $ref: '#/components/parameters/ResAttrEq'
+        - $ref: '#/components/parameters/ResAttrIn'
+        - $ref: '#/components/parameters/ResAttrExists'
+      responses:
+        '200':
+          description: Successfully retrieved traces
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TracesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags:
+        - Traces
+      summary: Insert span entries
+      description: Insert one or more span entries into the specified schema
+      parameters:
+        - $ref: '#/components/parameters/Schema'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/TraceEntryResponse'
+            example:
+              - timestamp: '2024-01-15T10:30:00Z'
+                service_name: api-gateway
+                name: HTTP GET /api/users
+                trace_id: abc123def456
+                span_id: xyz789
+                span_kind: server
+      responses:
+        '201':
+          description: Span entries created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ids:
+                    type: array
+                    items:
+                      type: string
+                    description: Array of created span entry IDs
+                  count:
+                    type: integer
+                    description: Number of entries created
+                example:
+                  ids:
+                    - '123456'
+                    - '123457'
+                    - '123458'
+                  count: 3
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/traces/{id}:
+    get:
+      tags:
+        - Traces
+      summary: Retrieve a specific trace by ID
+      description: Fetch a single trace entry by its unique identifier
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Trace entry ID
+        - $ref: '#/components/parameters/Schema'
+      responses:
+        '200':
+          description: Successfully retrieved trace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceEntryResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/traces/cursor:
+    get:
+      tags:
+        - Traces
+      summary: Generate cursor for offset position
+      description: Generate a cursor for a specific offset position in the trace dataset, enabling efficient "jump to middle" functionality
+      parameters:
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Service'
+        - $ref: '#/components/parameters/Schema'
+      responses:
+        '200':
+          description: Successfully generated cursor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TracesResponse'
+        '400':
+          description: Bad Request - Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_offset:
+                  summary: Invalid offset parameter
+                  value:
+                    error: invalid_parameter
+                    message: offset must be a non-negative integer
+                    details:
+                      parameter: offset
+                      value: '-100'
+        '404':
+          description: Position not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                offset_exceeds_dataset:
+                  summary: Offset exceeds dataset size
+                  value:
+                    error: position_not_found
+                    message: offset 50000 exceeds dataset size of 25000 entries
+                    details:
+                      requested_offset: 50000
+                      max_offset: 24999
+                      total_count: 25000
+        '422':
+          description: Unprocessable Entity - Invalid filter criteria
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_filter:
+                  summary: No entries match filter criteria
+                  value:
+                    error: invalid_filter
+                    message: no entries match the specified filter criteria
+                    details:
+                      applied_filters:
+                        service: nonexistent-service
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/metrics:
+    get:
+      tags:
+        - Metrics
+      summary: Retrieve metrics with pagination
+      description: Fetch metrics with cursor-based pagination and filtering
+      parameters:
+        - $ref: '#/components/parameters/Start'
+        - $ref: '#/components/parameters/End'
+        - $ref: '#/components/parameters/Last'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Direction'
+        - $ref: '#/components/parameters/DirectionResults'
+        - $ref: '#/components/parameters/Service'
+        - $ref: '#/components/parameters/ServiceNames'
+        - $ref: '#/components/parameters/ServiceNameLike'
+        - $ref: '#/components/parameters/ServiceNameRegex'
+        - $ref: '#/components/parameters/ServiceNamePrefix'
+        - $ref: '#/components/parameters/ServiceNameSuffix'
+        - $ref: '#/components/parameters/ServiceNameContains'
+        - $ref: '#/components/parameters/Schema'
+        - $ref: '#/components/parameters/TimestampGte'
+        - $ref: '#/components/parameters/TimestampLte'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/CountOnly'
+        - $ref: '#/components/parameters/AttrEq'
+        - $ref: '#/components/parameters/AttrIn'
+        - $ref: '#/components/parameters/AttrExists'
+        - $ref: '#/components/parameters/ResAttrEq'
+        - $ref: '#/components/parameters/ResAttrIn'
+        - $ref: '#/components/parameters/ResAttrExists'
+        - $ref: '#/components/parameters/MetricType'
+      responses:
+        '200':
+          description: Successfully retrieved metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/metrics/{id}:
+    get:
+      tags:
+        - Metrics
+      summary: Retrieve a specific metric by ID
+      description: Fetch a single metric entry by its unique identifier
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Metric entry ID
+        - $ref: '#/components/parameters/Schema'
+      responses:
+        '200':
+          description: Successfully retrieved metric
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricEntryResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/metrics/{type}/{id}:
+    get:
+      description: Selects the requested metric table, including when IDs overlap across types.
+      parameters:
+      - in: path
+        name: type
+        required: true
+        schema:
+          enum:
+          - gauge
+          - sum
+          - histogram
+          - summary
+          - exponential_histogram
+          type: string
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: int64
+          type: integer
+      - $ref: null
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: null
+          description: Metric point
+        '404':
+          $ref: null
+      summary: Retrieve a metric by type and ID
+      tags:
+      - Metrics
+  /api/v1/metrics/cursor:
+    get:
+      tags:
+      - Metrics
+      summary: Generate cursor for offset position
+      description: Generate a cursor for a specific offset position in the metrics dataset, enabling efficient "jump
+        to middle" functionality
+      parameters:
+      - $ref: '#/components/parameters/Offset'
+      - $ref: '#/components/parameters/Query'
+      - $ref: '#/components/parameters/Service'
+      - $ref: '#/components/parameters/Schema'
+      - $ref: '#/components/parameters/MetricType'
+      - $ref: '#/components/parameters/CountOnly'
+      responses:
+        '200':
+          description: Successfully generated cursor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricQueryResult'
+        '400':
+          description: Bad Request - Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_offset:
+                  summary: Invalid offset parameter
+                  value:
+                    error: invalid_parameter
+                    message: offset must be a non-negative integer
+                    details:
+                      parameter: offset
+                      value: '-100'
+        '404':
+          description: Position not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                offset_exceeds_dataset:
+                  summary: Offset exceeds dataset size
+                  value:
+                    error: position_not_found
+                    message: offset 50000 exceeds dataset size of 25000 entries
+                    details:
+                      requested_offset: 50000
+                      max_offset: 24999
+                      total_count: 25000
+        '422':
+          description: Unprocessable Entity - Invalid filter criteria
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_filter:
+                  summary: No entries match filter criteria
+                  value:
+                    error: invalid_filter
+                    message: no entries match the specified filter criteria
+                    details:
+                      applied_filters:
+                        service: nonexistent-service
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/config/{config_type}:
+    get:
+      tags:
+        - Configuration
+      summary: List configurations by type
+      description: |
+        Retrieve a paginated list of configurations for the specified type.
+
+        Supported configuration types:
+        - **schemas**: Database schema configurations for telemetry data routing
+        - **processors**: Processor mapping configurations for data processing pipelines
+        - **embeddings**: Embedding provider configurations for vector generation
+        - **templates**: Template configurations for data transformation
+        - **vectorstores**: Vector store provider configurations for similarity search
+      parameters:
+        - name: config_type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - schemas
+              - processors
+              - embeddings
+              - templates
+              - vectorstores
+          description: Type of configuration to retrieve
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Direction'
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by configuration name (partial match)
+        - name: enabled
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Filter by enabled status (true/false)
+        - name: priority
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Filter by priority (only applicable for schema configs)
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Search in name and description fields
+      responses:
+        '200':
+          description: Successfully retrieved configurations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags:
+        - Configuration
+      summary: Create a new configuration
+      description: |
+        Create a new configuration of the specified type.
+
+        **Authentication Required**: Admin authentication is required for all configuration management operations.
+
+        **Configuration Types**:
+        - **schemas**: Create database schema configurations for routing telemetry data to specific database schemas
+        - **processors**: Create processor mapping configurations that define how data flows through processing pipelines
+        - **embeddings**: Create embedding provider configurations for AI/ML vector generation services
+        - **templates**: Create template configurations for data transformation and formatting
+        - **vectorstores**: Create vector store provider configurations for similarity search backends
+      parameters:
+        - name: config_type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - schemas
+              - processors
+              - embeddings
+              - templates
+              - vectorstores
+          description: Type of configuration to create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigCreateRequest'
+      responses:
+        '201':
+          description: Configuration created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+              examples:
+                schema_created:
+                  summary: Schema Configuration Created
+                  value:
+                    id: 1
+                    name: production-otel
+                    description: Production OpenTelemetry schema
+                    enabled: true
+                    priority: 1
+                    created_at: '2024-01-15T10:30:00Z'
+                    updated_at: '2024-01-15T10:30:00Z'
+                    metadata:
+                      version: '1.0'
+                      environment: production
+                    config:
+                      database_schema: otel
+                      routing:
+                        logs: otel_logs
+                        traces: otel_traces
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Configuration with the same name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Configuration with name 'production-otel' already exists
+                code: conflict
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/config/{config_type}/{id}:
+    get:
+      tags:
+        - Configuration
+      summary: Get configuration by ID
+      description: |
+        Retrieve a specific configuration by ID and type.
+
+        Returns detailed configuration information including metadata, configuration data, and timestamps.
+      parameters:
+        - name: config_type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - schemas
+              - processors
+              - embeddings
+              - templates
+              - vectorstores
+          description: Type of configuration
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Configuration ID
+      responses:
+        '200':
+          description: Successfully retrieved configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - Configuration
+      summary: Update configuration
+      description: |
+        Update an existing configuration by ID and type.
+
+        Supports partial updates - only provided fields will be modified.
+        **Note**: Some configuration changes may require system restart to take effect.
+      parameters:
+        - name: config_type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - schemas
+              - processors
+              - embeddings
+              - templates
+              - vectorstores
+          description: Type of configuration
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Configuration ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigUpdateRequest'
+      responses:
+        '200':
+          description: Configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - Configuration
+      summary: Delete configuration
+      description: |
+        Delete a configuration by ID and type.
+
+        **Warning**: Deleting configurations may affect dependent services and data processing pipelines.
+        The system will validate dependencies before deletion and return an error if the configuration is in use.
+      parameters:
+        - name: config_type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - schemas
+              - processors
+              - embeddings
+              - templates
+              - vectorstores
+          description: Type of configuration
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Configuration ID
+      responses:
+        '204':
+          description: Configuration deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/config/statistics:
+    get:
+      tags:
+        - Configuration
+      summary: Get configuration statistics
+      description: |
+        Retrieve statistics about all configuration types including counts for:
+        - Schema configurations
+        - Processor configurations
+        - Embedding configurations
+        - Template configurations
+        - Vector store configurations
+
+        **Authentication Required**: Admin authentication is required.
+      responses:
+        '200':
+          description: Successfully retrieved statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigStatisticsResponse'
+              example:
+                schema_configs: 3
+                processor_configs: 5
+                embedding_configs: 2
+                template_configs: 4
+                vectorstore_configs: 1
+                total_configs: 15
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/vectorstore/search:
+    post:
+      tags:
+        - Vector Store
+      summary: Search vector store
+      description: Perform similarity search in a configured vector store
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VectorStoreSearchRequest'
+      responses:
+        '200':
+          description: Search results returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VectorStoreSearchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/runs:
+    get:
+      tags:
+        - Runs
+      summary: Retrieve runs with pagination
+      description: Fetch runs with cursor-based pagination and filtering
+      parameters:
+        - $ref: '#/components/parameters/Start'
+        - $ref: '#/components/parameters/End'
+        - $ref: '#/components/parameters/Last'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Direction'
+        - $ref: '#/components/parameters/DirectionResults'
+        - $ref: '#/components/parameters/Service'
+        - $ref: '#/components/parameters/ServiceNames'
+        - $ref: '#/components/parameters/ServiceNameLike'
+        - $ref: '#/components/parameters/ServiceNameRegex'
+        - $ref: '#/components/parameters/ServiceNamePrefix'
+        - $ref: '#/components/parameters/ServiceNameSuffix'
+        - $ref: '#/components/parameters/ServiceNameContains'
+        - $ref: '#/components/parameters/Schema'
+        - $ref: '#/components/parameters/CountOnly'
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by run name
+        - name: session_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by session ID
+        - name: run_type
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Filter by run type
+        - name: active_only
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Filter to show only active runs
+      responses:
+        '200':
+          description: Successfully retrieved runs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags:
+        - Runs
+      summary: Create a new run
+      description: Create a new run entry in the specified schema
+      parameters:
+        - $ref: '#/components/parameters/Schema'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunCreateRequest'
+            example:
+              name: ML Training Run
+              session_id: session-123
+              run_type: 1
+              metadata:
+                model: transformer
+                dataset: training-v1
+      responses:
+        '201':
+          description: Run created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunEntryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - Runs
+      summary: Update an existing run
+      description: Update run metadata and status
+      parameters:
+        - $ref: '#/components/parameters/Schema'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunUpdateRequest'
+            example:
+              status: completed
+              metadata:
+                accuracy: 0.95
+                loss: 0.02
+      responses:
+        '200':
+          description: Run updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunEntryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - Runs
+      summary: End/terminate a run
+      description: Mark a run as ended or terminated
+      parameters:
+        - $ref: '#/components/parameters/Schema'
+      responses:
+        '204':
+          description: Run terminated successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/runs/{id}:
+    get:
+      tags:
+        - Runs
+      summary: Retrieve a specific run by ID
+      description: Fetch a single run entry by its unique identifier
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Run entry ID
+        - $ref: '#/components/parameters/Schema'
+      responses:
+        '200':
+          description: Successfully retrieved run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunEntryResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/profiles:
+    get:
+      tags:
+      - Profiles
+      summary: Retrieve profiles with pagination
+      description: Requires bearer authentication and access to the requested schema. Versioned rows expose the complete
+        OTLP JSON dictionary and exact base64 bytes; historical binary remains opaque.
+      parameters:
+      - name: start
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: end
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: last
+        in: query
+        schema:
+          type: string
+      - name: cursor
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 100
+          minimum: 1
+      - name: direction
+        in: query
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+      - name: service
+        in: query
+        schema:
+          type: string
+      - name: profile_type
+        in: query
+        schema:
+          type: string
+      - &id001
+        name: schema
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Profiles retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfilesResponse'
+        '400':
+          description: Invalid query
+        '401':
+          description: Authentication required
+        '403':
+          description: Schema access denied
+        '422':
+          description: Invalid query parameters
+        '500':
+          description: Query failed
+    post:
+      tags:
+      - Profiles
+      summary: Insert one or more profile entries
+      description: Requires bearer authentication and schema access. Versioned payloads are validated before any write;
+        omitted version preserves legacy opaque input.
+      parameters:
+      - *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - $ref: '#/components/schemas/ProfileEntryDTO'
+              - type: array
+                items:
+                  $ref: '#/components/schemas/ProfileEntryDTO'
+                minItems: 1
+      responses:
+        '200':
+          description: Profiles inserted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ids:
+                    type: array
+                    items:
+                      type: integer
+                      format: int64
+                  status:
+                    type: string
+                    enum:
+                    - inserted
+                required:
+                - ids
+                - status
+        '400':
+          description: Invalid format, version, payload, or timestamp; no writes performed
+        '401':
+          description: Authentication required
+        '403':
+          description: Schema access denied
+        '500':
+          description: Insert failed
+  /api/v1/schemas:
+    get:
+      tags:
+        - Configuration
+      summary: List available schemas
+      description: Retrieve a list of all available database schemas and their configurations
+      responses:
+        '200':
+          description: Successfully retrieved schemas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schemas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          description: Schema ID
+                        name:
+                          type: string
+                          description: Schema name
+                        schema:
+                          type: string
+                          description: Database schema name
+                        enabled:
+                          type: boolean
+                          description: Whether the schema is enabled
+                        priority:
+                          type: integer
+                          description: Schema priority for routing
+                        routing:
+                          type: object
+                          additionalProperties: true
+                          description: Service routing configuration
+                        description:
+                          type: string
+                          description: Schema description
+                        metadata:
+                          type: object
+                          additionalProperties: true
+                          description: Additional metadata
+                        created_at:
+                          type: string
+                          format: date-time
+                          description: Creation timestamp
+                        updated_at:
+                          type: string
+                          format: date-time
+                          description: Last update timestamp
+                      required:
+                        - name
+                        - enabled
+                example:
+                  schemas:
+                    - id: 1
+                      name: otel
+                      schema: otel
+                      enabled: true
+                      priority: 1
+                      routing:
+                        service_name_patterns:
+                          - api-*
+                          - web-*
+                        service_namespace_patterns:
+                          - production
+                      description: Default OTEL schema
+                      metadata:
+                        version: '1.0'
+                      created_at: '2023-01-01T12:00:00Z'
+                      updated_at: '2023-01-01T12:00:00Z'
+                    - id: 2
+                      name: legacy
+                      schema: legacy
+                      enabled: false
+                      priority: 2
+                      routing:
+                        service_name_patterns:
+                          - legacy-*
+                      description: Legacy schema
+                      metadata:
+                        deprecated: true
+                      created_at: '2023-01-01T12:00:00Z'
+                      updated_at: '2023-01-01T12:00:00Z'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/auth/request-password-reset:
+    post:
+      tags:
+      - Authentication
+      summary: Request private password reset email
+      security: []
+      description: Uses a bounded asynchronous private SMTP queue and a fixed frontend reset URL with token only in its browser fragment. Valid requests receive the
+        same generic response for known or missing accounts and delivery/storage failures. Tokens are never returned
+        or logged. No token/account lookup occurs when secure delivery is disabled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequestRequest'
+      responses:
+        '200':
+          description: Generic accepted response independent of account existence or delivery outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - status
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - if the account exists, a password reset email will be sent
+        '400':
+          description: Invalid email or request
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - error
+                properties:
+                  error:
+                    type: string
+        '503':
+          description: Secure private SMTP delivery or frontend reset URL is unconfigured or invalid; no token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - error
+                properties:
+                  error:
+                    type: string
+  /api/v1/auth/reset-password:
+    post:
+      tags:
+      - Authentication
+      summary: Consume one-time token and reset password
+      security: []
+      description: Reset tokens expire after one hour. Password update and token consumption commit atomically. Concurrent
+        replay, reuse and expired tokens are rejected; a failed password update does not consume the token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetPerformRequest'
+      responses:
+        '200':
+          description: Password reset completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - status
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - password reset successful
+        '400':
+          description: Invalid input, expired token or token replay
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - error
+                properties:
+                  error:
+                    type: string
+        '500':
+          description: Password reset could not complete
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - error
+                properties:
+                  error:
+                    type: string
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer JWT for user-authenticated requests. Token must represent the calling user and may include org_id/project_id claims where required.
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        Service API Key used for trusted server-to-server requests.
+        Format: "trz-<8 hex>_<32 hex>". Example: "trz-beb1a737_812ffb78a05df70eaddcfdf6e300e8d6".
+        Do not log or expose API keys; rotate regularly.
+  parameters:
+    Prefix:
+      in: query
+      name: prefix
+      required: false
+      schema:
+        type: string
+      description: Optional key prefix filter.
+    Limit:
+      in: query
+      name: limit
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 100
+      description: Maximum number of results to return. Must be between 1 and 1000. Values exceeding 1000 will be automatically normalized to 1000.
+    Cursor:
+      in: query
+      name: cursor
+      required: false
+      schema:
+        type: string
+      description: Base64-encoded cursor for pagination.
+    Direction:
+      in: query
+      name: direction
+      required: false
+      schema:
+        type: string
+        enum:
+          - asc
+          - desc
+        default: asc
+      description: Sort direction for pagination and result ordering.
+    IfMatchHeader:
+      in: header
+      name: If-Match
+      required: false
+      schema:
+        type: string
+      description: Optional ETag for conditional updates. When provided and mismatched, server returns 412.
+    Topics:
+      in: query
+      name: topics
+      required: false
+      schema:
+        type: array
+        items:
+          type: string
+      style: form
+      explode: true
+      description: Optional list of topics to include (e.g., mcp,alerts,system). If omitted, all topics are streamed.
+    WaitForEstablished:
+      in: query
+      name: wait_for_established
+      required: false
+      schema:
+        type: boolean
+        default: false
+      description: If true, connection waits until subscription is established before returning the first message.
+    Start:
+      in: query
+      name: start
+      required: false
+      schema:
+        type: string
+        format: date-time
+        pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$
+      description: ISO 8601 timestamp (RFC3339 format) - include entries >= this time. Must be before end time if both are provided.
+    End:
+      in: query
+      name: end
+      required: false
+      schema:
+        type: string
+        format: date-time
+        pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$
+      description: ISO 8601 timestamp (RFC3339 format) - include entries <= this time. Must be after start time if both are provided.
+    Last:
+      in: query
+      name: last
+      required: false
+      schema:
+        type: string
+        pattern: ^[0-9]+[smhd]$
+      description: Shorthand time window (e.g., 15m, 2h, 1d). Used when start/end not provided. Defaults to 1h.
+    StreamCursor:
+      in: query
+      name: cursor
+      required: false
+      schema:
+        type: string
+      description: |
+        Base64-encoded cursor for streaming preload starting position. When provided:
+        - Preloads from cursor position respecting the direction parameter
+        - Maintains all filters from the original query that generated the cursor
+        - Ignores start/end/last time parameters
+        - Filter context (severity, service, text search, attributes, etc.) is preserved from cursor origin
+    service:
+      in: query
+      name: service
+      required: false
+      schema:
+        type: string
+      description: Filter by service name
+    ServiceNames:
+      in: query
+      name: service_in
+      required: false
+      schema:
+        type: array
+        items:
+          type: string
+          minLength: 1
+        minItems: 1
+        maxItems: 100
+      style: form
+      explode: true
+      description: |
+        Multiple exact service names for filtering (OR logic). Matches entries from any of the specified services.
+        Example: ['api-gateway', 'web-frontend', 'payment-service'].
+        Cannot be used with other service name filters.
+    ServiceNameLike:
+      in: query
+      name: service_name_like
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        pattern: ^[^\x00]*$
+      description: |
+        SQL LIKE pattern for service name filtering. Supports % (any characters) and _ (single character) wildcards.
+        Examples: 'web-%' matches 'web-api', 'web-frontend'; 'api-_-service' matches 'api-v-service', 'api-1-service'.
+        Cannot be used with other service name filters.
+    ServiceNameRegex:
+      in: query
+      name: service_name_regex
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        pattern: ^[^\x00]*$
+      description: |
+        Regular expression pattern for service name filtering.
+        Examples: '^(api|web)-.*' matches services starting with 'api-' or 'web-'; '.*-(prod|staging)$' matches services ending with '-prod' or '-staging'.
+        Cannot be used with other service name filters.
+    ServiceNamePrefix:
+      in: query
+      name: service_name_prefix
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        pattern: ^[^\x00]*$
+      description: |
+        Prefix pattern for service name filtering. Matches services that start with the specified string.
+        Example: 'microservice-' matches 'microservice-auth', 'microservice-payment'.
+        Cannot be used with other service name filters.
+    ServiceNameSuffix:
+      in: query
+      name: service_name_suffix
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        pattern: ^[^\x00]*$
+      description: |
+        Suffix pattern for service name filtering. Matches services that end with the specified string.
+        Example: '-prod' matches 'api-gateway-prod', 'web-frontend-prod'.
+        Cannot be used with other service name filters.
+    ServiceNameContains:
+      in: query
+      name: service_name_contains
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        pattern: ^[^\x00]*$
+      description: |
+        Substring pattern for service name filtering. Matches services that contain the specified string.
+        Example: 'payment' matches 'user-payment-api', 'payment-processor', 'payment-gateway'.
+        Cannot be used with other service name filters.
+    Schema:
+      in: query
+      name: schema
+      required: false
+      schema:
+        type: string
+        default: otel
+      description: Database schema name
+    Severity:
+      in: query
+      name: severity
+      required: false
+      schema:
+        type: string
+        enum:
+          - trace
+          - debug
+          - info
+          - warn
+          - error
+          - fatal
+      description: Filter by log severity/level
+    TimestampGte:
+      in: query
+      name: timestamp_gte
+      required: false
+      schema:
+        type: string
+        format: date-time
+        pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$
+      description: ISO 8601 timestamp (RFC3339 format) - include entries >= this time
+    TimestampLte:
+      in: query
+      name: timestamp_lte
+      required: false
+      schema:
+        type: string
+        format: date-time
+        pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$
+      description: ISO 8601 timestamp (RFC3339 format) - include entries <= this time
+    Query:
+      in: query
+      name: q
+      required: false
+      schema:
+        type: string
+        minLength: 1
+      description: Search query to filter logs, traces, or metrics
+    AttrEq:
+      in: query
+      name: attr.eq
+      required: false
+      schema:
+        type: object
+        additionalProperties:
+          type: string
+      style: deepObject
+      explode: true
+      description: |
+        Exact match filtering for attributes using deepObject syntax.
+        Example: attr.eq[user_id]=123&attr.eq[environment]=production
+        Matches entries where specified attributes have exact values.
+    AttrIn:
+      in: query
+      name: attr.in
+      required: false
+      schema:
+        type: object
+        additionalProperties:
+          type: array
+          items:
+            type: string
+      style: deepObject
+      explode: true
+      description: |
+        Multiple value filtering for attributes using deepObject syntax.
+        Example: attr.in[status]=success,pending&attr.in[method]=GET,POST
+        Matches entries where specified attributes have any of the listed values.
+    AttrExists:
+      in: query
+      name: attr.exists
+      required: false
+      schema:
+        type: object
+        additionalProperties:
+          type: boolean
+      style: deepObject
+      explode: true
+      description: |
+        Existence filtering for attributes using deepObject syntax.
+        Example: attr.exists[trace_id]=true&attr.exists[span_id]=false
+        Matches entries where specified attributes exist (true) or don't exist (false).
+    ResAttrEq:
+      in: query
+      name: res_attr.eq
+      required: false
+      schema:
+        type: object
+        additionalProperties:
+          type: string
+      style: deepObject
+      explode: true
+      description: |
+        Exact match filtering for resource attributes using deepObject syntax.
+        Example: res_attr.eq[host.name]=server-01&res_attr.eq[service.version]=1.2.3
+        Matches entries where specified resource attributes have exact values.
+    ResAttrIn:
+      in: query
+      name: res_attr.in
+      required: false
+      schema:
+        type: object
+        additionalProperties:
+          type: array
+          items:
+            type: string
+      style: deepObject
+      explode: true
+      description: |
+        Multiple value filtering for resource attributes using deepObject syntax.
+        Example: res_attr.in[environment]=prod,staging&res_attr.in[region]=us-east,us-west
+        Matches entries where specified resource attributes have any of the listed values.
+    ResAttrExists:
+      in: query
+      name: res_attr.exists
+      required: false
+      schema:
+        type: object
+        additionalProperties:
+          type: boolean
+      style: deepObject
+      explode: true
+      description: |
+        Existence filtering for resource attributes using deepObject syntax.
+        Example: res_attr.exists[k8s.pod.name]=true&res_attr.exists[aws.region]=false
+        Matches entries where specified resource attributes exist (true) or don't exist (false).
+    Service:
+      in: query
+      name: service
+      required: false
+      schema:
+        type: string
+        minLength: 1
+      description: Filter by service name
+    schema:
+      in: query
+      name: schema
+      required: false
+      schema:
+        type: string
+        default: otel
+      description: Database schema name
+    IdempotencyKeyHeader:
+      in: header
+      name: Idempotency-Key
+      required: false
+      schema:
+        type: string
+      description: Optional idempotency key. Duplicate requests with the same key return the original result.
+    DirectionResults:
+      in: query
+      name: direction_results
+      required: false
+      schema:
+        type: string
+        enum:
+          - asc
+          - desc
+        default: asc
+      description: Sort direction for final result ordering. When different from direction, results are reversed. Defaults to same as direction.
+    CountOnly:
+      in: query
+      name: count_only
+      required: false
+      schema:
+        type: string
+        enum:
+          - true
+          - false
+          - 1
+          - 0
+        default: false
+      description: When true, returns only the count of matching entries instead of the full results.
+    Offset:
+      in: query
+      name: offset
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 100000
+        default: 0
+      description: Zero-based offset for pagination. Must be between 0 and 100000.
+    MetricType:
+      in: query
+      name: type
+      required: false
+      schema:
+        type: string
+        enum:
+          - gauge
+          - sum
+          - histogram
+          - summary
+          - exponential_histogram
+      description: Filter by metric type
+    severity:
+      in: query
+      name: severity
+      required: false
+      schema:
+        type: string
+        enum:
+          - trace
+          - debug
+          - info
+          - warn
+          - error
+          - fatal
+      description: Filter by log severity/level
+    timestamp_gte:
+      in: query
+      name: timestamp_gte
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: ISO 8601 timestamp - include logs >= this time
+    timestamp_lte:
+      in: query
+      name: timestamp_lte
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: ISO 8601 timestamp - include logs <= this time
+    query:
+      in: query
+      name: q
+      required: false
+      schema:
+        type: string
+      description: Search query to filter logs
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/Error'
+              - $ref: '#/components/schemas/ValidationErrors'
+          examples:
+            sample:
+              value:
+                error: Invalid request payload
+                code: bad_request
+                details:
+                  field: Value
+                  reason: missing
+            validation_errors:
+              summary: Validation errors
+              value:
+                errors:
+                  - field: start
+                    message: invalid start time format, expected RFC3339
+                  - field: limit
+                    message: limit cannot exceed 1000
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: Missing or invalid token
+                code: unauthorized
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: Resource not found
+                code: not_found
+    PreconditionFailed:
+      description: Precondition failed (ETag mismatch)
+      headers:
+        ETag:
+          $ref: '#/components/headers/ETag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: ETag mismatch
+                code: precondition_failed
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: Insufficient permissions
+                code: forbidden
+    UnprocessableEntity:
+      description: Unprocessable entity
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: Unprocessable entity
+                code: unprocessable_entity
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: Internal server error
+                code: internal_server_error
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: Conflict
+                code: conflict
+    InternalError:
+      description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: Unexpected server error
+                code: internal_error
+  schemas:
+    ConfigListResult:
+      type: object
+      properties:
+        Entries:
+          type: array
+          items:
+            type: object
+            properties:
+              Key:
+                type: string
+                minLength: 1
+              UpdatedAt:
+                type: string
+                format: date-time
+        NextCursor:
+          type: string
+        HasMore:
+          type: boolean
+      example:
+        Entries:
+          - Key: theme
+            UpdatedAt: '2025-08-19T12:35:56Z'
+          - Key: notifications
+            UpdatedAt: '2025-08-19T12:30:00Z'
+        NextCursor: eyJvZmZzZXQiOiJ0aGVtZSJ9
+        HasMore: true
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable message
+        code:
+          type: string
+          description: Stable machine-readable error code
+        details:
+          type: object
+          additionalProperties: true
+          description: Optional structured details for debugging
+      example:
+        error: Invalid request payload
+        code: bad_request
+        details:
+          field: Value
+          reason: missing
+    ValidationError:
+      type: object
+      properties:
+        field:
+          type: string
+          description: The field that failed validation
+        message:
+          type: string
+          description: Human-readable validation error message
+      required:
+        - field
+        - message
+      example:
+        field: limit
+        message: limit cannot exceed 1000
+    ValidationErrors:
+      type: object
+      properties:
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          description: Collection of validation errors
+      required:
+        - errors
+      example:
+        errors:
+          - field: start
+            message: invalid start time format, expected RFC3339
+          - field: limit
+            message: limit cannot exceed 1000
+    ConfigEntryResponse:
+      type: object
+      properties:
+        Key:
+          type: string
+          minLength: 1
+        Value:
+          type: object
+          additionalProperties: true
+        ETag:
+          type: string
+        CreatedAt:
+          type: string
+          format: date-time
+        UpdatedAt:
+          type: string
+          format: date-time
+      example:
+        Key: theme
+        Value:
+          color: dark
+          font: system
+        ETag: '"3a7f-5c2"'
+        CreatedAt: '2025-08-19T12:34:56Z'
+        UpdatedAt: '2025-08-19T12:35:56Z'
+    ConfigUpsertRequest:
+      type: object
+      properties:
+        Value:
+          type: object
+          additionalProperties: true
+      required:
+        - Value
+      example:
+        Value:
+          color: dark
+          font: system
+    ConfigPatchRequest:
+      type: object
+      description: JSON object to deep-merge into existing Value. Object fields are merged; arrays are replaced.
+      additionalProperties: true
+      example:
+        font: system-ui
+    WSNotification:
+      type: object
+      required:
+        - type
+        - topic
+        - data
+        - ts
+        - id
+      properties:
+        type:
+          type: string
+          enum:
+            - notification
+        topic:
+          type: string
+          minLength: 1
+        data:
+          type: object
+          additionalProperties: true
+        ts:
+          type: string
+          format: date-time
+        id:
+          type: integer
+        meta:
+          type: object
+          additionalProperties: true
+        seq:
+          type: integer
+      example:
+        type: notification
+        topic: alerts
+        data:
+          title: High CPU
+          body: Server xyz is above 90%
+        ts: '2025-08-19T12:40:00Z'
+        id: 123457
+        meta:
+          priority: high
+        seq: 12
+    WSReady:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - ready
+      example:
+        type: ready
+    WSDropped:
+      type: object
+      required:
+        - type
+        - count
+      properties:
+        type:
+          type: string
+          enum:
+            - dropped
+        count:
+          type: integer
+          minimum: 1
+      example:
+        type: dropped
+        count: 3
+    NotificationEnqueueRequest:
+      type: object
+      required:
+        - topic
+        - data
+      properties:
+        topic:
+          type: string
+          description: Notification topic (e.g., mcp, alerts, system)
+          minLength: 1
+        data:
+          type: object
+          additionalProperties: true
+        ttl_seconds:
+          type: integer
+          description: Optional retention in seconds (default 1209600 = 14 days)
+          minimum: 1
+        meta:
+          type: object
+          additionalProperties: true
+      example:
+        topic: alerts
+        data:
+          title: High CPU
+          body: Server xyz is above 90%
+        ttl_seconds: 3600
+        meta:
+          priority: high
+    NotificationEnqueueResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          example: queued
+        expires_at:
+          type: string
+          format: date-time
+      example:
+        id: 123456
+        status: queued
+        expires_at: '2025-08-19T13:34:56Z'
+    LogEntryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique log entry identifier
+        timestamp_ns:
+          type: integer
+          format: int64
+          description: Log timestamp in nanoseconds
+        timestamp:
+          type: string
+          format: date-time
+          description: Human-readable timestamp
+        observed_timestamp:
+          type: string
+          format: date-time
+          description: When the log was observed
+        trace_id:
+          type: string
+          description: OpenTelemetry trace ID
+        span_id:
+          type: string
+          description: OpenTelemetry span ID
+        flags:
+          type: integer
+          description: Log flags
+        severity_text:
+          type: string
+          description: Log severity level as text
+        severity_number:
+          type: integer
+          description: Log severity level as number
+        service_name:
+          type: string
+          description: Service name that generated the log
+        resource_attributes:
+          type: object
+          additionalProperties: true
+          description: Resource attributes
+        scope_name:
+          type: string
+          description: Scope name
+        scope_version:
+          type: string
+          description: Scope version
+        scope_attributes:
+          type: object
+          additionalProperties: true
+          description: Scope attributes
+        scope_dropped_attr_count:
+          type: integer
+          description: Number of dropped scope attributes
+        scope_schema_url:
+          type: string
+          description: Scope schema URL
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Log attributes
+        dropped_attr_count:
+          type: integer
+          description: Number of dropped attributes
+        body:
+          type: string
+          description: Log message body
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional metadata
+        resource_schema_url:
+          type: string
+          description: Resource schema URL
+      example:
+        id: 123456
+        timestamp_ns: 1705312200000000000
+        timestamp: '2024-01-15T10:30:00Z'
+        service_name: api-gateway
+        severity_text: info
+        body: Request processed successfully
+        trace_id: abc123def456
+        span_id: xyz789
+    PaginationResponse:
+      type: object
+      properties:
+        next_cursor:
+          type: string
+          nullable: true
+          description: Base64-encoded cursor for the next page of results
+        prev_cursor:
+          type: string
+          nullable: true
+          description: Base64-encoded cursor for the previous page of results
+        has_next_page:
+          type: boolean
+          description: Whether there are more results available after this page
+        has_prev_page:
+          type: boolean
+          description: Whether there are more results available before this page
+        total_count:
+          type: integer
+          format: int64
+          description: Total number of entries matching the query (may be approximate for large datasets)
+      required:
+        - has_next_page
+        - has_prev_page
+        - total_count
+      example:
+        next_cursor: eyJpZCI6MTIzNDU2LCJ0cyI6IjIwMjMtMTAtMTVUMTQ6MzA6MDBaIn0=
+        prev_cursor: null
+        has_next_page: true
+        has_prev_page: false
+        total_count: 300500
+    LogsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEntryResponse'
+          description: Array of log entries
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
+        next_cursor:
+          type: string
+          description: Base64-encoded cursor for next page (deprecated, use pagination.next_cursor)
+        has_more:
+          type: boolean
+          description: Whether there are more results available (deprecated, use pagination.has_next_page)
+        total_count:
+          type: integer
+          description: Total number of entries matching the filter (deprecated, use pagination.total_count)
+      example:
+        entries:
+          - id: 123456
+            timestamp: '2024-01-15T10:30:00Z'
+            service_name: api-gateway
+            severity_text: info
+            body: Request processed successfully
+        pagination:
+          next_cursor: eyJpZCI6MTIzNDU3LCJ0aW1lc3RhbXAiOiIyMDI0LTAxLTE1VDEwOjMxOjAwWiJ9
+          prev_cursor: eyJpZCI6MTIzNDU2LCJ0aW1lc3RhbXAiOiIyMDI0LTAxLTE1VDEwOjMwOjAwWiJ9
+          has_next_page: true
+          has_prev_page: false
+          total_count: 25000
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error type identifier
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          additionalProperties: true
+          description: Additional error details
+      example:
+        error: invalid_parameter
+        message: offset must be a non-negative integer
+        details:
+          parameter: offset
+          value: '-100'
+    TraceEntryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique trace entry identifier
+        timestamp_ns:
+          type: integer
+          format: int64
+          description: Trace timestamp in nanoseconds
+        timestamp:
+          type: string
+          format: date-time
+          description: Human-readable timestamp
+        trace_id:
+          type: string
+          description: OpenTelemetry trace ID
+        span_id:
+          type: string
+          description: OpenTelemetry span ID
+        parent_span_id:
+          type: string
+          description: Parent span ID
+        trace_state:
+          type: string
+          description: Trace state
+        name:
+          type: string
+          description: Span name
+        span_kind:
+          type: string
+          description: Span kind
+        service_name:
+          type: string
+          description: Service name that generated the trace
+        resource_attributes:
+          type: object
+          additionalProperties: true
+          description: Resource attributes
+        scope_name:
+          type: string
+          description: Scope name
+        scope_version:
+          type: string
+          description: Scope version
+        scope_attributes:
+          type: object
+          additionalProperties: true
+          description: Scope attributes
+        scope_dropped_attr_count:
+          type: integer
+          description: Number of dropped scope attributes
+        scope_schema_url:
+          type: string
+          description: Scope schema URL
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Span attributes
+        dropped_attr_count:
+          type: integer
+          description: Number of dropped attributes
+        events:
+          type: array
+          items:
+            type: object
+          description: Span events
+        dropped_events_count:
+          type: integer
+          description: Number of dropped events
+        links:
+          type: array
+          items:
+            type: object
+          description: Span links
+        dropped_links_count:
+          type: integer
+          description: Number of dropped links
+        status_code:
+          type: string
+          description: Span status code
+        status_message:
+          type: string
+          description: Span status message
+        end_time:
+          type: string
+          format: date-time
+          description: Span end time
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional metadata
+        resource_schema_url:
+          type: string
+          description: Resource schema URL
+      example:
+        id: 123456
+        timestamp_ns: 1705312200000000000
+        timestamp: '2024-01-15T10:30:00Z'
+        service_name: api-gateway
+        name: HTTP GET /api/users
+        trace_id: abc123def456
+        span_id: xyz789
+    TracesResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/TraceEntryResponse'
+          description: Array of trace entries
+        next_cursor:
+          type: string
+          description: Base64-encoded cursor for next page
+        has_more:
+          type: boolean
+          description: Whether there are more results available
+        total_count:
+          type: integer
+          description: Total number of entries matching the filter
+      example:
+        entries:
+          - id: 123456
+            timestamp: '2024-01-15T10:30:00Z'
+            service_name: api-gateway
+            name: HTTP GET /api/users
+            trace_id: abc123def456
+        next_cursor: eyJpZCI6MTIzNDU3LCJ0aW1lc3RhbXAiOiIyMDI0LTAxLTE1VDEwOjMxOjAwWiJ9
+        has_more: true
+        total_count: 25000
+    MetricQueryResult:
+      type: object
+      required:
+      - entries
+      - next_cursor
+      - has_more
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricEntryResponse'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+        prev_cursor:
+          type: string
+        has_prev:
+          type: boolean
+    MetricEntryResponse:
+      type: object
+      description: A metric point. Fields depend on its type; absent optional values are omitted, while present zero
+        values are retained. IDs are unique within a metric table, so typed ID routes disambiguate overlapping IDs.
+      required:
+      - id
+      - timestamp_ns
+      - timestamp
+      - service_name
+      - name
+      properties:
+        id:
+          type: integer
+          format: int64
+        timestamp_ns:
+          type: integer
+          format: int64
+        timestamp:
+          type: string
+          format: date-time
+        service_name:
+          type: string
+        service_namespace:
+          type: string
+        service_instance_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        unit:
+          type: string
+        scope_name:
+          type: string
+        scope_version:
+          type: string
+        resource_schema_url:
+          type: string
+        scope_schema_url:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        value:
+          type: number
+        sum:
+          type: number
+        min:
+          type: number
+        max:
+          type: number
+        zero_threshold:
+          type: number
+        count:
+          type: integer
+          format: int64
+        zero_count:
+          type: integer
+          format: int64
+        flags:
+          type: integer
+          format: int32
+        scope_dropped_attr_count:
+          type: integer
+          format: int32
+        aggregation_temporality:
+          type: integer
+          format: int32
+        scale:
+          type: integer
+          format: int32
+        positive_offset:
+          type: integer
+          format: int32
+        negative_offset:
+          type: integer
+          format: int32
+        is_monotonic:
+          type: boolean
+        attributes:
+          type: object
+          additionalProperties: true
+        resource_attributes:
+          type: object
+          additionalProperties: true
+        scope_attributes:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+        buckets:
+          description: Histogram distribution, including bucket_counts and explicit_bounds for OTLP records.
+        quantiles:
+          type: array
+          items:
+            type: object
+            properties:
+              quantile:
+                type: number
+              value:
+                type: number
+        exemplars:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        positive_bucket_counts:
+          type: array
+          items:
+            type: integer
+            format: int64
+        negative_bucket_counts:
+          type: array
+          items:
+            type: integer
+            format: int64
+      example:
+        id: 1
+        timestamp_ns: 1791979200000000000
+        timestamp: '2026-10-14T12:00:00Z'
+        service_name: api-gateway
+        name: http_requests_total
+        value: 0
+        aggregation_temporality: 2
+        is_monotonic: true
+    MetricsResponse:
+      type: object
+      required:
+      - data
+      - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricEntryResponse'
+        pagination:
+          type: object
+          required:
+          - next_cursor
+          - prev_cursor
+          - has_next_page
+          - has_prev_page
+          properties:
+            next_cursor:
+              type: string
+            prev_cursor:
+              type: string
+            has_next_page:
+              type: boolean
+            has_prev_page:
+              type: boolean
+    ConfigResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique configuration identifier
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Configuration name
+        description:
+          type: string
+          description: Optional configuration description
+        enabled:
+          type: boolean
+          description: Whether this configuration is active
+        priority:
+          type: integer
+          description: Configuration priority for ordering
+        created_at:
+          type: string
+          format: date-time
+          description: Configuration creation timestamp (ISO8601 format)
+        updated_at:
+          type: string
+          format: date-time
+          description: Configuration last update timestamp (ISO8601 format)
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional configuration metadata
+        config:
+          type: object
+          additionalProperties: true
+          description: Type-specific configuration data
+      required:
+        - id
+        - name
+        - enabled
+        - priority
+        - created_at
+        - updated_at
+        - config
+      example:
+        id: 1
+        name: otel-schema
+        description: Standard OpenTelemetry schema configuration
+        enabled: true
+        priority: 1
+        created_at: '2024-01-15T10:30:00Z'
+        updated_at: '2024-01-15T10:30:00Z'
+        metadata:
+          version: '1.0'
+        config:
+          database_schema: otel
+          priority: 1
+          routing:
+            logs: otel_logs
+            traces: otel_traces
+    ConfigListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfigResponse'
+          description: Array of configuration entries
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
+      required:
+        - data
+        - pagination
+      example:
+        data:
+          - id: 1
+            name: otel-schema
+            enabled: true
+            created_at: '2024-01-15T10:30:00Z'
+            updated_at: '2024-01-15T10:30:00Z'
+            config:
+              database_schema: otel
+        pagination:
+          has_next_page: false
+          has_prev_page: false
+          total_count: 1
+    ConfigCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Configuration name (required)
+        description:
+          type: string
+          description: Optional configuration description
+        enabled:
+          type: boolean
+          default: true
+          description: Whether this configuration should be active
+        priority:
+          type: integer
+          description: Configuration priority for ordering
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional configuration metadata
+        config:
+          type: object
+          additionalProperties: true
+          description: Type-specific configuration data
+      required:
+        - name
+        - enabled
+        - priority
+        - config
+      examples:
+        schema_config:
+          summary: Schema Configuration
+          value:
+            name: production-otel
+            description: Production OpenTelemetry schema
+            enabled: true
+            priority: 1
+            metadata:
+              version: '1.0'
+              environment: production
+            config:
+              database_schema: otel
+              priority: 1
+              routing:
+                logs: otel_logs
+                traces: otel_traces
+                metrics: otel_metrics
+        processor_config:
+          summary: Processor Configuration
+          value:
+            name: logs-embedding-processor
+            description: Process logs for embedding generation
+            enabled: true
+            priority: 1
+            metadata:
+              processing_mode: batch
+              batch_size: 100
+            config:
+              database_id: 1
+              vectorstore_id: 1
+              template_id: 1
+              processing_mode: template
+              routing:
+                logs: otel_logs
+              filter:
+                signal_type: logs
+                level:
+                  - error
+                  - warn
+        embedding_config:
+          summary: Embedding Configuration
+          value:
+            name: openai-ada-002
+            description: OpenAI text-embedding-ada-002 provider
+            enabled: true
+            priority: 1
+            metadata:
+              provider_type: openai
+              rate_limit: 1000
+            config:
+              provider: openai
+              model: text-embedding-ada-002
+              dimension: 1536
+              max_context_length: 8191
+              rate_limit: 1000
+              timeout: 30
+              normalize: false
+              headers:
+                Authorization: Bearer sk-...
+              endpoint: https://api.openai.com/v1/embeddings
+        template_config:
+          summary: Template Configuration
+          value:
+            name: log-embedding-template
+            description: Template for processing log entries
+            enabled: true
+            priority: 1
+            metadata:
+              version: '1.0'
+              template_type: embedding
+            config:
+              content:
+                log_template: '{{.message}} {{.level}}'
+                trace_template: '{{.operation_name}} {{.service_name}}'
+              template_metadata:
+                fields:
+                  - message
+                  - level
+                  - timestamp
+                required:
+                  - message
+        vectorstore_config:
+          summary: Vector Store Configuration
+          value:
+            name: postgres-vectorstore
+            description: PostgreSQL vector store with pgvector
+            enabled: true
+            priority: 1
+            metadata:
+              store_type: postgres
+              version: '1.0'
+            config:
+              provider: postgres
+              endpoint: postgresql://localhost:5432/vectordb
+              user: vectoruser
+              database: vectors
+              embedding_id: 1
+              batch_size: 100
+              flush_interval_ms: 200
+              max_retries: 3
+              max_open_conns: 25
+              max_idle_conns: 5
+              conn_max_lifetime_ms: 3600000
+              batch_error_policy: retry
+              max_concurrent_batches: 8
+              vendor_specific_options:
+                index_type: ivfflat
+                lists: 100
+    ConfigUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Configuration name (optional for updates)
+        description:
+          type: string
+          description: Optional configuration description
+        enabled:
+          type: boolean
+          description: Whether this configuration should be active
+        priority:
+          type: integer
+          description: Configuration priority for ordering
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional configuration metadata
+        config:
+          type: object
+          additionalProperties: true
+          description: Type-specific configuration data
+      examples:
+        partial_update:
+          summary: Partial Configuration Update
+          value:
+            name: updated-processor
+            enabled: false
+            metadata:
+              version: '1.1'
+              last_modified_by: admin
+        full_update:
+          summary: Full Configuration Update
+          value:
+            name: updated-schema
+            description: Updated schema configuration
+            enabled: true
+            priority: 5
+            metadata:
+              version: '2.0'
+              environment: staging
+            config:
+              database_schema: staging
+              routing:
+                logs: staging_logs
+                traces: staging_traces
+    ConfigStatisticsResponse:
+      type: object
+      properties:
+        schema_configs:
+          type: integer
+          format: int64
+          description: Number of schema configurations
+        processor_configs:
+          type: integer
+          format: int64
+          description: Number of processor configurations
+        embedding_configs:
+          type: integer
+          format: int64
+          description: Number of embedding configurations
+        template_configs:
+          type: integer
+          format: int64
+          description: Number of template configurations
+        vectorstore_configs:
+          type: integer
+          format: int64
+          description: Number of vector store configurations
+        total_configs:
+          type: integer
+          format: int64
+          description: Total number of configurations across all types
+      required:
+        - schema_configs
+        - processor_configs
+        - embedding_configs
+        - template_configs
+        - vectorstore_configs
+        - total_configs
+      example:
+        schema_configs: 3
+        processor_configs: 5
+        embedding_configs: 2
+        template_configs: 4
+        vectorstore_configs: 1
+        total_configs: 15
+    VectorStoreSearchRequest:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query text
+        top_k:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 5
+          description: Number of top results to return
+        store_id:
+          type: string
+          description: ID of the vector store to search
+        score_threshold:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          default: 0.3
+          description: Minimum similarity score threshold
+      required:
+        - query
+        - store_id
+      example:
+        query: error handling in authentication
+        top_k: 10
+        store_id: main_docs
+        score_threshold: 0.5
+    VectorStoreDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Document identifier
+        content:
+          type: object
+          description: Document content (structure varies by document type)
+        score:
+          type: number
+          format: float
+          description: Similarity score (0-1, higher is more similar)
+        timestamp:
+          type: string
+          format: date-time
+          description: Document timestamp (optional)
+      required:
+        - id
+        - content
+        - score
+      example:
+        id: doc_123
+        content:
+          title: Authentication Error Handling
+          text: Best practices for handling authentication errors...
+        score: 0.85
+        timestamp: '2025-08-30T12:00:00Z'
+    VectorStoreSearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/VectorStoreDocument'
+          description: Search results ordered by relevance
+      required:
+        - results
+      example:
+        results:
+          - id: doc_123
+            content:
+              title: Auth Error Handling
+              text: ...
+            score: 0.85
+            timestamp: '2025-08-30T12:00:00Z'
+    RunEntryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique run identifier
+        name:
+          type: string
+          description: Run name
+        status:
+          type: string
+          enum:
+            - pending
+            - running
+            - completed
+            - failed
+            - cancelled
+          description: Current run status
+        description:
+          type: string
+          description: Optional run description
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional run metadata
+        created_at:
+          type: string
+          format: date-time
+          description: Run creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Run last update timestamp
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Run start timestamp
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Run completion timestamp
+      required:
+        - id
+        - name
+        - status
+        - created_at
+        - updated_at
+      example:
+        id: 1
+        name: ML Training Run
+        status: running
+        description: Training neural network model
+        metadata:
+          model_type: transformer
+          epochs: 100
+        created_at: '2024-01-15T10:30:00Z'
+        updated_at: '2024-01-15T10:35:00Z'
+        started_at: '2024-01-15T10:31:00Z'
+        completed_at: null
+    RunsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunEntryResponse'
+          description: Array of run entries
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
+      required:
+        - data
+        - pagination
+      example:
+        data:
+          - id: 1
+            name: ML Training Run
+            status: running
+            created_at: '2024-01-15T10:30:00Z'
+            updated_at: '2024-01-15T10:30:00Z'
+        pagination:
+          has_next_page: false
+          has_prev_page: false
+          total_count: 1
+    RunUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Run name (optional for updates)
+        status:
+          type: string
+          enum:
+            - pending
+            - running
+            - completed
+            - failed
+            - cancelled
+          description: Run status
+        description:
+          type: string
+          description: Optional run description
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional run metadata
+      example:
+        status: completed
+        metadata:
+          final_accuracy: 0.95
+          training_time: 2h 30m
+    RunCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Run name (required)
+        description:
+          type: string
+          description: Optional run description
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional run metadata
+      required:
+        - name
+      example:
+        name: ML Training Run
+        description: Training neural network model
+        metadata:
+          model_type: transformer
+          epochs: 100
+    ProfileEntryDTO:
+      type: object
+      description: Version 1 requires otlp-profiles-protobuf, schema version 1, and valid base64 protobuf containing
+        exactly one resource, scope and profile with a valid complete dictionary. Searchable summaries derive from the
+        payload. Timestamp is the signed-index fallback for zero or unsigned out-of-range source time. Version 0 retains
+        historical opaque bytes and caller summaries without asserting wire compatibility.
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        service_name:
+          type: string
+        service_namespace:
+          type: string
+        service_instance_id:
+          type: string
+        profile_type:
+          type: string
+          description: Arbitrary OTLP sample-type label, such as cpu or alloc_space.
+        duration_ns:
+          type: integer
+          format: int64
+          description: Legacy signed duration summary; zero for unsigned durations outside signed bigint.
+        sample_type:
+          type: string
+        sample_unit:
+          type: string
+        profile_bytes:
+          type: string
+          format: byte
+          description: Exact persisted protobuf or legacy bytes encoded as base64.
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Searchable summaries; non-finite doubles use OTLP JSON strings NaN, Infinity and -Infinity.
+        resource_attributes:
+          type: object
+          additionalProperties: true
+        resource_schema_url:
+          type: string
+        scope_name:
+          type: string
+        scope_version:
+          type: string
+        scope_attributes:
+          type: object
+          additionalProperties: true
+        scope_dropped_attr_count:
+          type: integer
+          format: int32
+          description: Legacy signed scope dropped count, omitted when uint32 exceeds signed int32.
+        scope_schema_url:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        profile_storage_version:
+          type: integer
+          enum:
+          - 0
+          - 1
+          default: 0
+        profile_encoding:
+          type: string
+          enum:
+          - legacy-unversioned
+          - otlp-profiles-protobuf
+        profile_schema_version:
+          type: string
+          enum:
+          - '1'
+          nullable: true
+      required:
+      - timestamp
+
+    ProfileEntryResponse:
+      type: object
+      properties:
+        profile_id:
+          type: integer
+          format: int64
+          description: Database row identifier, distinct from the source OTLP profile ID.
+        timestamp_ns:
+          type: integer
+          format: int64
+          description: Signed database query index; ingestion time when source time is zero or outside signed bigint.
+        timestamp:
+          type: string
+          format: date-time
+        service_name:
+          type: string
+        service_namespace:
+          type: string
+        service_instance_id:
+          type: string
+        profile_type:
+          type: string
+          description: Arbitrary OTLP sample-type label, such as cpu or alloc_space.
+        duration_ns:
+          type: integer
+          format: int64
+          description: Legacy signed duration summary; zero for unsigned durations outside signed bigint.
+        sample_type:
+          type: string
+        sample_unit:
+          type: string
+        profile_storage_version:
+          type: integer
+          format: int32
+          description: 0 for unversioned legacy storage; 1 for explicitly versioned current OTLP storage.
+        profile_encoding:
+          type: string
+          description: legacy-unversioned or otlp-profiles-protobuf.
+        profile_schema_version:
+          type: string
+          description: Compiled OTLP development wire metadata version for current rows, presently 1. Does not assert
+            historical wire compatibility.
+        otel_profile_id:
+          type: string
+          description: Source 16-byte profile identity in hexadecimal.
+        profile_time_unix_nano:
+          type: string
+          pattern: ^[0-9]+$
+          description: Exact unsigned source nanoseconds, including zero and values above signed bigint.
+        duration_nano:
+          type: string
+          pattern: ^[0-9]+$
+          description: Exact unsigned source duration in nanoseconds.
+        profile_bytes:
+          type: string
+          format: byte
+          description: Exact persisted protobuf or legacy bytes encoded as base64.
+        profile_data:
+          description: Complete OTLP JSON container and dictionary for decoded current rows. Historical JSON remains
+            legacy JSON; legacy binary is omitted.
+        profile_decode_status:
+          type: string
+          enum:
+          - decoded
+          - legacy-opaque
+          - legacy-json
+          - error
+        profile_decode_error:
+          type: string
+          description: Explicit failure for invalid or unsupported versioned storage; raw base64 bytes are still returned.
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Searchable summaries; non-finite doubles use OTLP JSON strings NaN, Infinity and -Infinity.
+        resource_attributes:
+          type: object
+          additionalProperties: true
+        resource_schema_url:
+          type: string
+        scope_name:
+          type: string
+        scope_version:
+          type: string
+        scope_attributes:
+          type: object
+          additionalProperties: true
+        scope_dropped_attr_count:
+          type: integer
+          format: int32
+          description: Legacy signed scope dropped count, omitted when uint32 exceeds signed int32.
+        scope_schema_url:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        dropped_attr_count:
+          type: integer
+          format: int32
+          description: Legacy signed profile dropped count, distinct from scope; omitted on signed overflow.
+        profile_dropped_attributes_count:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+        resource_dropped_attributes_count:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+        scope_dropped_attributes_count:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      required:
+      - profile_id
+      - timestamp_ns
+      - timestamp
+      - duration_ns
+      - profile_bytes
+      - profile_storage_version
+      - profile_encoding
+      - profile_decode_status
+    ProfilesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfileEntryResponse'
+        pagination:
+          type: object
+          properties:
+            next_cursor:
+              type: string
+            prev_cursor:
+              type: string
+            has_next_page:
+              type: boolean
+            has_prev_page:
+              type: boolean
+      required:
+      - data
+      - pagination
+    CursorGenerationResponse:
+      type: object
+      properties:
+        cursor:
+          type: string
+          description: Base64-encoded cursor token for the specified position
+        position:
+          type: object
+          properties:
+            offset:
+              type: integer
+              description: Actual offset position (may differ from requested if out of bounds)
+            total_count:
+              type: integer
+              description: Total number of entries matching the filter
+            direction:
+              type: string
+              enum:
+                - asc
+                - desc
+              description: Pagination direction used
+        entry_preview:
+          type: object
+          properties:
+            id:
+              type: integer
+              format: int64
+              description: Log entry ID
+            timestamp:
+              type: string
+              format: date-time
+              description: Log timestamp
+            service:
+              type: string
+              description: Service name
+            severity:
+              type: string
+              description: Log severity level
+            message:
+              type: string
+              description: Log message body
+      example:
+        cursor: eyJpZCI6MTIzNDU2LCJ0aW1lc3RhbXAiOiIyMDI0LTAxLTE1VDEwOjMwOjAwWiJ9
+        position:
+          offset: 5000
+          total_count: 25000
+          direction: asc
+        entry_preview:
+          id: 123456
+          timestamp: '2024-01-15T10:30:00Z'
+          service: api-gateway
+          severity: info
+          message: Request processed successfully
+  headers:
+    X-Next-Cursor:
+      description: Opaque cursor for fetching the next page of results.
+      schema:
+        type: string
+        example: eyJvZmZzZXQiOiJrZXktMTIwIn0=
+    ETag:
+      description: Current entity tag for concurrency control. Send back via If-Match on updates.
+      schema:
+        type: string
+        example: W/"f84a5c18-2c94-4b6c-9a5b-5f2e8bb1b2a1"
+
+    PasswordResetRequestRequest:
+      type: object
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          format: email
+    PasswordResetPerformRequest:
+      type: object
+      required:
+      - token
+      - new_password
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: Private one-time token from the delivered reset email URL fragment.
+        new_password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: At least 8 bytes; bcrypt accepts at most 72 bytes including any configured server pepper.

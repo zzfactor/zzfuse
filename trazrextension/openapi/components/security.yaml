@@ -1,0 +1,16 @@
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer JWT for user-authenticated requests. Token must represent the calling user and may include org_id/project_id claims where required.
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        Service API Key used for trusted server-to-server requests.
+        Format: "trz-<8 hex>_<32 hex>". Example: "trz-beb1a737_812ffb78a05df70eaddcfdf6e300e8d6".
+        Do not log or expose API keys; rotate regularly.

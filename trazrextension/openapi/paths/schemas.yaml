@@ -1,0 +1,84 @@
+paths:
+  /api/v1/schemas:
+    get:
+      tags:
+        - Configuration
+      summary: List available schemas
+      description: Retrieve a list of all available database schemas and their configurations
+      responses:
+        '200':
+          description: Successfully retrieved schemas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schemas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          description: Schema ID
+                        name:
+                          type: string
+                          description: Schema name
+                        schema:
+                          type: string
+                          description: Database schema name
+                        enabled:
+                          type: boolean
+                          description: Whether the schema is enabled
+                        priority:
+                          type: integer
+                          description: Schema priority for routing
+                        routing:
+                          type: object
+                          additionalProperties: true
+                          description: Service routing configuration
+                        description:
+                          type: string
+                          description: Schema description
+                        metadata:
+                          type: object
+                          additionalProperties: true
+                          description: Additional metadata
+                        created_at:
+                          type: string
+                          format: date-time
+                          description: Creation timestamp
+                        updated_at:
+                          type: string
+                          format: date-time
+                          description: Last update timestamp
+                      required: [name, enabled]
+                example:
+                  schemas:
+                    - id: 1
+                      name: "otel"
+                      schema: "otel"
+                      enabled: true
+                      priority: 1
+                      routing:
+                        service_name_patterns: ["api-*", "web-*"]
+                        service_namespace_patterns: ["production"]
+                      description: "Default OTEL schema"
+                      metadata:
+                        version: "1.0"
+                      created_at: "2023-01-01T12:00:00Z"
+                      updated_at: "2023-01-01T12:00:00Z"
+                    - id: 2
+                      name: "legacy"
+                      schema: "legacy"
+                      enabled: false
+                      priority: 2
+                      routing:
+                        service_name_patterns: ["legacy-*"]
+                      description: "Legacy schema"
+                      metadata:
+                        deprecated: true
+                      created_at: "2023-01-01T12:00:00Z"
+                      updated_at: "2023-01-01T12:00:00Z"
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError

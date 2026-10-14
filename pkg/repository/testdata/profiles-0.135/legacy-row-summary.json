@@ -1,0 +1,26 @@
+{
+  "bytes": 880,
+  "construction": "matches prior exporter: one profile with full shared dictionary/resource/scope/schemaURLs copied",
+  "dictionary_links": 2,
+  "dictionary_locations": 3,
+  "duration_ns": "9000000000",
+  "first_values": [
+    7,
+    11
+  ],
+  "legacy_first_sample_link_index": 0,
+  "original_payload_hex": "00017f80ff0a0d",
+  "otel_profile_id": "0102030405060708090a0b0c0d0e0f10",
+  "producer": "pprofile v0.135.0 / pdata v1.41.0",
+  "profile_type": "cpu",
+  "profiles": 1,
+  "sample_count": 2,
+  "sample_type_count": 2,
+  "sample_unit": "nanoseconds",
+  "second_values": [
+    -5,
+    0
+  ],
+  "sha256": "9ab043d9a65dee8c9d2ba26ba036779bb302fd913cee09049398e7a15e89d7d9",
+  "timestamp_ns": "1777777777123456789"
+}

@@ -1,0 +1,30 @@
+paths:
+  /api/v1/user/notifications:
+    post:
+      tags: [Notifications]
+      summary: Enqueue a user notification
+      operationId: userNotificationsEnqueue
+      description: |
+        Security: Requires JWT (bearerAuth). Obtain a JWT via normal login
+        or by exchanging an API key at /api/v1/auth/apikeys/exchange.
+        Enqueues a notification scoped by the caller's JWT (org/project as applicable).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/IdempotencyKeyHeader
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: ../components/schemas.yaml#/components/schemas/NotificationEnqueueRequest }
+      responses:
+        '200':
+          description: Enqueued
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/NotificationEnqueueResponse }
+        '400': { $ref: ../components/responses.yaml#/components/responses/BadRequest }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '403': { $ref: ../components/responses.yaml#/components/responses/Forbidden }
+        '409': { $ref: ../components/responses.yaml#/components/responses/Conflict }
+        '500': { $ref: ../components/responses.yaml#/components/responses/InternalError }

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "zzfuse": {
+      "command": "/absolute/path/to/zzfuse/trazr-mcp/trazr-mcp",
+      "args": [],
+      "env": {
+        "MCP_API_KEY": "",
+        "EXTENSION_URL": "http://localhost:18888",
+        "AUTH_BASE_URL": "http://localhost:18888"
+      }
+    }
+  }
+}

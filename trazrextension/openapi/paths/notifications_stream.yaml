@@ -1,0 +1,55 @@
+paths:
+  /api/v1/stream/user/notifications:
+    get:
+      tags: [Notifications, Realtime Streams]
+      summary: Stream user notifications (WebSocket)
+      operationId: userNotificationsStream
+      description: |
+        Security: Requires JWT (bearerAuth). The token must represent the subscribing user.
+        Streams user-targeted notifications in realtime.
+        Message types:
+          - {"type":"notification","topic":"...","data":{...},"ts":"RFC3339","id":"...","meta":{...},"seq":123}
+          - {"type":"ready"} after any optional preload completes
+          - {"type":"dropped","count":N} when messages are dropped due to backpressure
+        In-band control:
+          client → server: {"type":"set_filter","filter":{"topics":["mcp","alerts"]}}
+          server → client: {"type":"ack"} or {"type":"error","message":"..."}
+        Keepalive and ping/pong:
+          - Server auto-responds to pings and extends the read deadline on pong or ping.
+          - Optional server-initiated pings when configured.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Topics
+        - $ref: ../components/parameters.yaml#/components/parameters/WaitForEstablished
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade)
+        '200':
+          description: Example stream messages
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: ../components/schemas.yaml#/components/schemas/WSNotification
+                  - $ref: ../components/schemas.yaml#/components/schemas/WSReady
+                  - $ref: ../components/schemas.yaml#/components/schemas/WSDropped
+              examples:
+                notification:
+                  value:
+                    type: notification
+                    topic: alerts
+                    data: { title: "High CPU", body: "Server xyz is above 90%" }
+                    ts: "2025-08-19T12:40:00Z"
+                    id: "evt_01HXYZABC456"
+                    meta: { priority: "high" }
+                    seq: 12
+                ready:
+                  value:
+                    type: ready
+                dropped:
+                  value:
+                    type: dropped
+                    count: 3
+        '400': { $ref: ../components/responses.yaml#/components/responses/BadRequest }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }

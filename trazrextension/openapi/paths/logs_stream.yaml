@@ -1,0 +1,160 @@
+paths:
+  /api/v1/stream/logs:
+    get:
+      tags:
+        - Logs
+        - Realtime Streams
+      summary: Stream logs in real-time (WebSocket)
+      operationId: streamLogs
+      description: |
+        Establishes a WebSocket connection for real-time log streaming with optional preloading and dynamic filtering.
+        
+        **Connection Flow:**
+        1. Client connects with initial filters via query parameters
+        2. Optional preload of historical data (if cursor/time parameters provided)
+        3. Real-time streaming of new log entries matching filters
+        4. Dynamic filter updates via WebSocket messages
+        
+        **WebSocket Messages:**
+        - **Incoming (Client → Server):**
+          - `{"type":"set_filter","filter":{...}}` - Update filters dynamically
+          - `{"type":"keepalive"}` - Keep connection alive
+        - **Outgoing (Server → Client):**
+          - Log entries as JSON objects
+          - `{"type":"ready"}` - Preload complete (if applicable)
+          - `{"type":"ack"}` - Filter update acknowledged
+          - `{"type":"error","message":"..."}` - Error messages
+          - `{"type":"dropped","count":N}` - Dropped message notification
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Start
+        - $ref: ../components/parameters.yaml#/components/parameters/End
+        - $ref: ../components/parameters.yaml#/components/parameters/Last
+        - $ref: ../components/parameters.yaml#/components/parameters/StreamCursor
+        - $ref: ../components/parameters.yaml#/components/parameters/Limit
+        - $ref: ../components/parameters.yaml#/components/parameters/Direction
+        - $ref: ../components/parameters.yaml#/components/parameters/service
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNames
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameLike
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameRegex
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNamePrefix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameSuffix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameContains
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+        - $ref: ../components/parameters.yaml#/components/parameters/Severity
+        - $ref: ../components/parameters.yaml#/components/parameters/TimestampGte
+        - $ref: ../components/parameters.yaml#/components/parameters/TimestampLte
+        - $ref: ../components/parameters.yaml#/components/parameters/Query
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrEq
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrIn
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrExists
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrEq
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrIn
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrExists
+        - $ref: ../components/parameters.yaml#/components/parameters/WaitForEstablished
+        - name: severity_min
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 24
+          description: Minimum severity level (inclusive)
+        - name: severity_max
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 24
+          description: Maximum severity level (inclusive)
+        - name: severity_text_in
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by specific severity text values
+        - name: severity_group_in
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [TRACE, DEBUG, INFO, WARN, ERROR, FATAL]
+          style: form
+          explode: true
+          description: Filter by severity groups
+        - name: q_mode
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [text, regex]
+            default: text
+          description: Query mode for text search
+        - name: q_flags
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Regex flags when q_mode=regex
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade successful)
+        '200':
+          description: Example stream messages and protocol documentation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  protocol:
+                    type: string
+                    example: "WebSocket"
+                  message_types:
+                    type: array
+                    items:
+                      type: string
+                    example: ["log_entry", "ready", "ack", "error", "dropped"]
+              examples:
+                log_entry:
+                  summary: Log entry message
+                  value:
+                    id: 12345
+                    timestamp: "2024-01-01T12:00:00Z"
+                    service_name: "web-frontend"
+                    severity_text: "INFO"
+                    severity_number: 9
+                    body: "User login successful"
+                    attributes:
+                      user_id: "user123"
+                      session_id: "sess456"
+                ready_message:
+                  summary: Preload complete signal
+                  value:
+                    type: "ready"
+                filter_update:
+                  summary: Client filter update message
+                  value:
+                    type: "set_filter"
+                    filter:
+                      service_name_like: "web-%"
+                      severity_min: 8
+        '400':
+          $ref: ../components/responses.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../components/responses.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../components/responses.yaml#/components/responses/Forbidden
+        '422':
+          $ref: ../components/responses.yaml#/components/responses/UnprocessableEntity
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError

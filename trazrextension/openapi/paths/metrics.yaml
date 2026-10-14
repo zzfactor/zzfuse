@@ -1,0 +1,179 @@
+paths:
+  /api/v1/metrics:
+    get:
+      tags:
+        - Metrics
+      summary: Retrieve metrics with pagination
+      description: Fetch metrics with cursor-based pagination and filtering
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Start
+        - $ref: ../components/parameters.yaml#/components/parameters/End
+        - $ref: ../components/parameters.yaml#/components/parameters/Last
+        - $ref: ../components/parameters.yaml#/components/parameters/Cursor
+        - $ref: ../components/parameters.yaml#/components/parameters/Limit
+        - $ref: ../components/parameters.yaml#/components/parameters/Direction
+        - $ref: ../components/parameters.yaml#/components/parameters/DirectionResults
+        - $ref: ../components/parameters.yaml#/components/parameters/Service
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNames
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameLike
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameRegex
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNamePrefix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameSuffix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameContains
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+        - $ref: ../components/parameters.yaml#/components/parameters/TimestampGte
+        - $ref: ../components/parameters.yaml#/components/parameters/TimestampLte
+        - $ref: ../components/parameters.yaml#/components/parameters/Query
+        - $ref: ../components/parameters.yaml#/components/parameters/CountOnly
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrEq
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrIn
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrExists
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrEq
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrIn
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrExists
+        - $ref: ../components/parameters.yaml#/components/parameters/MetricType
+      responses:
+        '200':
+          description: Successfully retrieved metrics
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/MetricsResponse
+        '400':
+          $ref: ../components/responses.yaml#/components/responses/BadRequest
+        '422':
+          $ref: ../components/responses.yaml#/components/responses/UnprocessableEntity
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError
+
+  /api/v1/metrics/{id}:
+    get:
+      tags:
+      - Metrics
+      summary: Retrieve a specific metric by ID
+      description: Probes metric tables in a fixed order; IDs may overlap across tables. Prefer the typed metric route.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+        description: Metric entry ID
+      - $ref: ../components/parameters.yaml#/components/parameters/Schema
+      responses:
+        '200':
+          description: Successfully retrieved metric
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/MetricEntryResponse
+        '404':
+          $ref: ../components/responses.yaml#/components/responses/NotFound
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError
+      deprecated: true
+
+  /api/v1/metrics/cursor:
+    get:
+      tags:
+      - Metrics
+      summary: Generate cursor for offset position
+      description: Generate a cursor for a specific offset position in the metrics dataset, enabling efficient "jump
+        to middle" functionality
+      parameters:
+      - $ref: ../components/parameters.yaml#/components/parameters/Offset
+      - $ref: ../components/parameters.yaml#/components/parameters/Query
+      - $ref: ../components/parameters.yaml#/components/parameters/Service
+      - $ref: ../components/parameters.yaml#/components/parameters/Schema
+      - $ref: ../components/parameters.yaml#/components/parameters/MetricType
+      - $ref: ../components/parameters.yaml#/components/parameters/CountOnly
+      responses:
+        '200':
+          description: Successfully generated cursor
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/MetricQueryResult
+        '400':
+          description: Bad Request - Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/ErrorResponse
+              examples:
+                invalid_offset:
+                  summary: Invalid offset parameter
+                  value:
+                    error: invalid_parameter
+                    message: offset must be a non-negative integer
+                    details:
+                      parameter: offset
+                      value: '-100'
+        '404':
+          description: Position not found
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/ErrorResponse
+              examples:
+                offset_exceeds_dataset:
+                  summary: Offset exceeds dataset size
+                  value:
+                    error: position_not_found
+                    message: offset 50000 exceeds dataset size of 25000 entries
+                    details:
+                      requested_offset: 50000
+                      max_offset: 24999
+                      total_count: 25000
+        '422':
+          description: Unprocessable Entity - Invalid filter criteria
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/ErrorResponse
+              examples:
+                invalid_filter:
+                  summary: No entries match filter criteria
+                  value:
+                    error: invalid_filter
+                    message: no entries match the specified filter criteria
+                    details:
+                      applied_filters:
+                        service: nonexistent-service
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError
+  /api/v1/metrics/{type}/{id}:
+    get:
+      tags:
+      - Metrics
+      summary: Retrieve a metric by type and ID
+      description: Selects the requested metric table, including when IDs overlap across types.
+      parameters:
+      - name: type
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - gauge
+          - sum
+          - histogram
+          - summary
+          - exponential_histogram
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - $ref: ../components/parameters.yaml#/components/parameters/Schema
+      responses:
+        '200':
+          description: Metric point
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/MetricEntryResponse
+        '404':
+          $ref: ../components/responses.yaml#/components/responses/NotFound

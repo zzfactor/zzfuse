@@ -1,0 +1,169 @@
+paths:
+  /api/v1/runs:
+    get:
+      tags:
+        - Runs
+      summary: Retrieve runs with pagination
+      description: Fetch runs with cursor-based pagination and filtering
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Start
+        - $ref: ../components/parameters.yaml#/components/parameters/End
+        - $ref: ../components/parameters.yaml#/components/parameters/Last
+        - $ref: ../components/parameters.yaml#/components/parameters/Cursor
+        - $ref: ../components/parameters.yaml#/components/parameters/Limit
+        - $ref: ../components/parameters.yaml#/components/parameters/Direction
+        - $ref: ../components/parameters.yaml#/components/parameters/DirectionResults
+        - $ref: ../components/parameters.yaml#/components/parameters/Service
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNames
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameLike
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameRegex
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNamePrefix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameSuffix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameContains
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+        - $ref: ../components/parameters.yaml#/components/parameters/CountOnly
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by run name
+        - name: session_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by session ID
+        - name: run_type
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Filter by run type
+        - name: active_only
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Filter to show only active runs
+      responses:
+        '200':
+          description: Successfully retrieved runs
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/RunsResponse
+        '400':
+          $ref: ../components/responses.yaml#/components/responses/BadRequest
+        '422':
+          $ref: ../components/responses.yaml#/components/responses/UnprocessableEntity
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError
+    post:
+      tags:
+        - Runs
+      summary: Create a new run
+      description: Create a new run entry in the specified schema
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/components/schemas/RunCreateRequest
+            example:
+              name: "ML Training Run"
+              session_id: "session-123"
+              run_type: 1
+              metadata:
+                model: "transformer"
+                dataset: "training-v1"
+      responses:
+        '201':
+          description: Run created successfully
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/RunEntryResponse
+        '400':
+          $ref: ../components/responses.yaml#/components/responses/BadRequest
+        '422':
+          $ref: ../components/responses.yaml#/components/responses/UnprocessableEntity
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError
+    put:
+      tags:
+        - Runs
+      summary: Update an existing run
+      description: Update run metadata and status
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/components/schemas/RunUpdateRequest
+            example:
+              status: "completed"
+              metadata:
+                accuracy: 0.95
+                loss: 0.02
+      responses:
+        '200':
+          description: Run updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/RunEntryResponse
+        '400':
+          $ref: ../components/responses.yaml#/components/responses/BadRequest
+        '404':
+          $ref: ../components/responses.yaml#/components/responses/NotFound
+        '422':
+          $ref: ../components/responses.yaml#/components/responses/UnprocessableEntity
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError
+    delete:
+      tags:
+        - Runs
+      summary: End/terminate a run
+      description: Mark a run as ended or terminated
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+      responses:
+        '204':
+          description: Run terminated successfully
+        '404':
+          $ref: ../components/responses.yaml#/components/responses/NotFound
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError
+
+  /api/v1/runs/{id}:
+    get:
+      tags:
+        - Runs
+      summary: Retrieve a specific run by ID
+      description: Fetch a single run entry by its unique identifier
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Run entry ID
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+      responses:
+        '200':
+          description: Successfully retrieved run
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/RunEntryResponse
+        '404':
+          $ref: ../components/responses.yaml#/components/responses/NotFound
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError

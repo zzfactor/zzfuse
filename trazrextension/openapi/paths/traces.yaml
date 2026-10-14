@@ -1,0 +1,187 @@
+paths:
+  /api/v1/traces:
+    get:
+      tags:
+        - Traces
+      summary: Retrieve traces with pagination
+      description: Fetch traces with cursor-based pagination and filtering
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Start
+        - $ref: ../components/parameters.yaml#/components/parameters/End
+        - $ref: ../components/parameters.yaml#/components/parameters/Last
+        - $ref: ../components/parameters.yaml#/components/parameters/Cursor
+        - $ref: ../components/parameters.yaml#/components/parameters/Limit
+        - $ref: ../components/parameters.yaml#/components/parameters/Direction
+        - $ref: ../components/parameters.yaml#/components/parameters/DirectionResults
+        - $ref: ../components/parameters.yaml#/components/parameters/Service
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNames
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameLike
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameRegex
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNamePrefix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameSuffix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameContains
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+        - $ref: ../components/parameters.yaml#/components/parameters/TimestampGte
+        - $ref: ../components/parameters.yaml#/components/parameters/TimestampLte
+        - $ref: ../components/parameters.yaml#/components/parameters/Query
+        - $ref: ../components/parameters.yaml#/components/parameters/CountOnly
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrEq
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrIn
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrExists
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrEq
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrIn
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrExists
+      responses:
+        '200':
+          description: Successfully retrieved traces
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/TracesResponse
+        '400':
+          $ref: ../components/responses.yaml#/components/responses/BadRequest
+        '422':
+          $ref: ../components/responses.yaml#/components/responses/UnprocessableEntity
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError
+    post:
+      tags:
+        - Traces
+      summary: Insert span entries
+      description: Insert one or more span entries into the specified schema
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: ../components/schemas.yaml#/components/schemas/TraceEntryResponse
+            example:
+              - timestamp: "2024-01-15T10:30:00Z"
+                service_name: "api-gateway"
+                name: "HTTP GET /api/users"
+                trace_id: "abc123def456"
+                span_id: "xyz789"
+                span_kind: "server"
+      responses:
+        '201':
+          description: Span entries created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ids:
+                    type: array
+                    items:
+                      type: string
+                    description: Array of created span entry IDs
+                  count:
+                    type: integer
+                    description: Number of entries created
+                example:
+                  ids: ["123456", "123457", "123458"]
+                  count: 3
+        '400':
+          $ref: ../components/responses.yaml#/components/responses/BadRequest
+        '422':
+          $ref: ../components/responses.yaml#/components/responses/UnprocessableEntity
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError
+
+  /api/v1/traces/{id}:
+    get:
+      tags:
+        - Traces
+      summary: Retrieve a specific trace by ID
+      description: Fetch a single trace entry by its unique identifier
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Trace entry ID
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+      responses:
+        '200':
+          description: Successfully retrieved trace
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/TraceEntryResponse
+        '404':
+          $ref: ../components/responses.yaml#/components/responses/NotFound
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError
+
+  /api/v1/traces/cursor:
+    get:
+      tags:
+        - Traces
+      summary: Generate cursor for offset position
+      description: Generate a cursor for a specific offset position in the trace dataset, enabling efficient "jump to middle" functionality
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Offset
+        - $ref: ../components/parameters.yaml#/components/parameters/Query
+        - $ref: ../components/parameters.yaml#/components/parameters/Service
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+      responses:
+        '200':
+          description: Successfully generated cursor
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/TracesResponse
+        '400':
+          description: Bad Request - Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/ErrorResponse
+              examples:
+                invalid_offset:
+                  summary: Invalid offset parameter
+                  value:
+                    error: "invalid_parameter"
+                    message: "offset must be a non-negative integer"
+                    details:
+                      parameter: "offset"
+                      value: "-100"
+        '404':
+          description: Position not found
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/ErrorResponse
+              examples:
+                offset_exceeds_dataset:
+                  summary: Offset exceeds dataset size
+                  value:
+                    error: "position_not_found"
+                    message: "offset 50000 exceeds dataset size of 25000 entries"
+                    details:
+                      requested_offset: 50000
+                      max_offset: 24999
+                      total_count: 25000
+        '422':
+          description: Unprocessable Entity - Invalid filter criteria
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/ErrorResponse
+              examples:
+                invalid_filter:
+                  summary: No entries match filter criteria
+                  value:
+                    error: "invalid_filter"
+                    message: "no entries match the specified filter criteria"
+                    details:
+                      applied_filters:
+                        service: "nonexistent-service"
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError

@@ -1,0 +1,162 @@
+paths:
+  /api/v1/user/configs:
+    get:
+      tags: [Configuration]
+      summary: List user configs
+      operationId: userConfigsList
+      description: |
+        List config keys for the authenticated user with optional prefix filter and cursor-based pagination.
+        Security: Requires JWT (bearerAuth). The token must represent the calling user.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Prefix
+        - $ref: ../components/parameters.yaml#/components/parameters/Limit
+        - $ref: ../components/parameters.yaml#/components/parameters/Cursor
+        - $ref: ../components/parameters.yaml#/components/parameters/Direction
+      responses:
+        '200':
+          description: List of user config entries
+          headers:
+            X-Next-Cursor:
+              $ref: ../components/headers.yaml#/components/headers/X-Next-Cursor
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/ConfigListResult
+              examples:
+                sample:
+                  value:
+                    Entries:
+                      - { Key: "theme", UpdatedAt: "2025-08-19T12:35:56Z" }
+                      - { Key: "notifications", UpdatedAt: "2025-08-19T12:30:00Z" }
+                    NextCursor: "eyJvZmZzZXQiOiJ0aGVtZSJ9"
+                    HasMore: true
+        '400': { $ref: ../components/responses.yaml#/components/responses/BadRequest }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+  /api/v1/user/configs/{key}:
+    get:
+      tags: [Configuration]
+      summary: Get a user config by key
+      operationId: userConfigsGet
+      description: |
+        Security: Requires JWT (bearerAuth). The token must represent the calling user.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Config entry
+          headers:
+            ETag:
+              $ref: ../components/headers.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/ConfigEntryResponse
+              examples:
+                sample:
+                  value:
+                    Key: "theme"
+                    Value: { color: "dark", font: "system" }
+                    ETag: "\"3a7f-5c2\""
+                    CreatedAt: "2025-08-19T12:34:56Z"
+                    UpdatedAt: "2025-08-19T12:35:56Z"
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '404': { $ref: ../components/responses.yaml#/components/responses/NotFound }
+    put:
+      tags: [Configuration]
+      summary: Upsert a user config (replace)
+      operationId: userConfigsUpsert
+      description: |
+        Security: Requires JWT (bearerAuth). The token must represent the calling user.
+        Use If-Match with the previous ETag to ensure optimistic concurrency.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: ../components/parameters.yaml#/components/parameters/IfMatchHeader
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/components/schemas/ConfigUpsertRequest
+      responses:
+        '200':
+          description: Upserted
+          headers:
+            ETag:
+              $ref: ../components/headers.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigEntryResponse }
+        '201':
+          description: Created
+          headers:
+            ETag:
+              $ref: ../components/headers.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigEntryResponse }
+        '400': { $ref: ../components/responses.yaml#/components/responses/BadRequest }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '412': { $ref: ../components/responses.yaml#/components/responses/PreconditionFailed }
+    patch:
+      tags: [Configuration]
+      summary: Update a user config (deep-merge objects)
+      operationId: userConfigsPatch
+      description: |
+        Security: Requires JWT (bearerAuth). The token must represent the calling user.
+        Use If-Match with the previous ETag to ensure optimistic concurrency.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: ../components/parameters.yaml#/components/parameters/IfMatchHeader
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/components/schemas/ConfigPatchRequest
+      responses:
+        '200':
+          description: Updated
+          headers:
+            ETag:
+              $ref: ../components/headers.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigEntryResponse }
+        '400': { $ref: ../components/responses.yaml#/components/responses/BadRequest }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '404': { $ref: ../components/responses.yaml#/components/responses/NotFound }
+        '412': { $ref: ../components/responses.yaml#/components/responses/PreconditionFailed }
+    delete:
+      tags: [Configuration]
+      summary: Delete a user config
+      operationId: userConfigsDelete
+      description: |
+        Security: Requires JWT (bearerAuth). The token must represent the calling user.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '404': { $ref: ../components/responses.yaml#/components/responses/NotFound }

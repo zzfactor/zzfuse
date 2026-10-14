@@ -1,0 +1,12 @@
+components:
+  headers:
+    ETag:
+      description: Current entity tag for concurrency control. Send back via If-Match on updates.
+      schema:
+        type: string
+        example: W/"f84a5c18-2c94-4b6c-9a5b-5f2e8bb1b2a1"
+    X-Next-Cursor:
+      description: Opaque cursor for fetching the next page of results.
+      schema:
+        type: string
+        example: eyJvZmZzZXQiOiJrZXktMTIwIn0=

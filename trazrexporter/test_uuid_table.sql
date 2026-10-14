@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS test_uuid_logs (
+	id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+	timestamp_ns BIGINT NOT NULL,
+	timestamp TIMESTAMP WITH TIME ZONE GENERATED ALWAYS AS (to_timestamp(timestamp_ns / 1000000000.0)) STORED,
+	service_name TEXT NOT NULL,
+	trace_id TEXT,
+	span_id TEXT,
+	resource_attributes HSTORE,
+	resource_schema_url TEXT,
+	scope_name TEXT,
+	scope_version TEXT,
+	scope_schema_url TEXT,
+	scope_attributes HSTORE,
+	trace_flags SMALLINT DEFAULT 0,
+	severity_text TEXT,
+	severity_number SMALLINT,
+	body TEXT,
+	attributes HSTORE,
+	metadata JSONB DEFAULT '{}'::jsonb
+) PARTITION BY RANGE (timestamp_ns);

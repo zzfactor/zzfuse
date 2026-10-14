@@ -1,0 +1,246 @@
+# Security Approach: JWT-based API Authentication
+
+## Overview
+
+The Trazrextension project uses **JWTs (JSON Web Tokens) as API keys** for authentication and authorization across all API endpoints, including HTTP and WebSocket streaming. This approach is modern, stateless, and highly extensible, supporting both user and admin roles, as well as future needs like scopes, organizations, and revocation.
+
+---
+
+## Why JWTs?
+- **Stateless authentication:** No server-side session storage required.
+- **Cryptographically signed:** Can be validated without a DB lookup.
+- **Role-based access control:** Claims in the token distinguish users, admins, and more.
+- **Extensible:** Add scopes, orgs, permissions, or other claims as needed.
+- **Industry standard:** Used by major cloud and SaaS providers.
+
+---
+
+## How It Works
+
+- **JWTs are issued by the backend** (or a trusted auth service) with claims such as `role`, `user_id`, `scopes`, etc.
+- **Clients (CLI, web, MCP server) send the JWT** in the `Authorization: Bearer <token>` header for all API and WebSocket requests.
+- **The backend validates the JWT** on every request (signature, expiry, claims).
+- **Authorization is enforced** by checking claims (e.g., `role == "admin"`) in handlers or middleware.
+
+---
+
+## Example JWT Claims
+
+```
+{
+  "sub": "user-123",
+  "role": "admin", // or "user"
+  "scopes": ["logs:read", "metrics:write"],
+  "org_id": "acme-corp",
+  "iat": 1712345678,
+  "exp": 1712355678
+}
+```
+
+---
+
+## Usage Patterns
+
+### CLI
+- Store the JWT securely (env var, config file, or OS keychain).
+- Pass as `Authorization: Bearer <token>` in all requests.
+
+### Web (Browser)
+- Store the JWT in memory (not localStorage/cookies if possible).
+- Pass as `Authorization: Bearer <token>` in all HTTP/WebSocket requests.
+- For WebSockets, if headers are not possible, use a `token` query parameter (with caution).
+
+### MCP Server (Service-to-Service)
+- Store the JWT/API key in a secure location (env var, secrets manager).
+- Pass as `Authorization: Bearer <token>`.
+- Rotate regularly.
+
+---
+
+## Roles and Permissions
+- **User and admin are distinguished by the `role` claim** in the JWT.
+- Handlers/middleware check the `role` claim to enforce access control.
+- You can extend with more roles, scopes, or permissions as needed.
+
+---
+
+## Token Expiry, Rotation, and Revocation
+- **Short-lived tokens** are recommended for user sessions.
+- **Long-lived tokens** (API keys) should be stored securely and rotated regularly.
+- **Revocation:** Use a `jti` (JWT ID) claim and maintain a denylist of revoked tokens if needed.
+
+---
+
+## Security Best Practices
+- Always use HTTPS.
+- Never hardcode secrets in code; use env vars or a secrets manager.
+- Validate JWTs on every request.
+- Check roles/claims for authorization, not just authentication.
+- Log and monitor authentication failures.
+- Document and educate users on secure token storage and usage.
+
+---
+
+## Extensibility
+- Add more claims (scopes, orgs, permissions) as your needs grow.
+- Switch to asymmetric signing (RS256) for distributed validation.
+- Add refresh tokens for session management if needed.
+
+---
+
+## Example: Issuing a JWT API Key
+
+```go
+import (
+    "github.com/golang-jwt/jwt/v5"
+    "time"
+)
+
+func GenerateAPIKeyJWT(userID, role, secret string, duration time.Duration) (string, error) {
+    claims := jwt.MapClaims{
+        "sub":  userID,
+        "role": role,
+        "iat":  time.Now().Unix(),
+    }
+    if duration > 0 {
+        claims["exp"] = time.Now().Add(duration).Unix()
+    }
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    return token.SignedString([]byte(secret))
+}
+```
+
+---
+
+## Development Best Practices
+
+- **Use a well-known, generic secret for local development** (e.g., `dev-secret`).
+- **Provide a pre-generated debug JWT** (with admin role and long expiry) for easy CLI, web, and test client use.
+- **Store the dev secret and debug JWT in environment variables** (e.g., `TRAZR_JWT_SECRET=dev-secret`, `TRAZR_DEBUG_JWT=...`).
+- **Document clearly** in README/SECURITY.md that these are for development only and must never be used in production.
+- **Add a runtime check** to refuse startup if the dev secret is used in production.
+
+### Example .env for Development
+```
+TRAZR_JWT_SECRET=dev-secret
+TRAZR_DEBUG_JWT=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... (admin, long expiry)
+```
+
+### Example Documentation Snippet
+```
+## Development Authentication
+
+For local development, use the following JWT secret and debug token:
+
+- JWT Secret: `dev-secret`
+- Debug JWT (admin): `<paste token here>`
+
+Pass the JWT as `Authorization: Bearer <token>` in all API/WebSocket requests.
+
+**WARNING:** Never use the dev secret or debug JWT in production!
+```
+
+---
+
+## Centralized JWT/API Key Generation for CLI and Web UI
+
+### Centralized Token Issuance via API
+- **JWTs (API keys) must always be generated by the backend.**
+- Clients (CLI, web UI, automation) authenticate to the backend (e.g., `/api/v1/auth/login` or `/api/v1/auth/token`) to obtain a JWT.
+- The backend signs the JWT, sets claims/roles/expiry, and returns it to the client.
+- The signing secret is never exposed to clients.
+
+### CLI Tool
+- The CLI prompts for credentials or accepts them as arguments/env vars.
+- It calls the backend login endpoint to get a JWT.
+- The CLI stores the JWT securely and uses it for all API/WebSocket calls.
+
+### Web UI
+- The web UI presents a login form and calls the backend login endpoint to get a JWT.
+- The JWT is stored in memory or browser storage and used for all API/WebSocket calls.
+
+### API Key Management (Long-Lived Keys)
+- For automation or service-to-service, provide endpoints for users/admins to generate, list, and revoke API keys (long-lived JWTs).
+- Users can manage their API keys via the web UI or CLI.
+
+### Why Not Generate JWTs on the Client?
+- The signing secret must never leave the backend.
+- Centralized control over claims, expiry, and revocation.
+- Enables logging, auditing, and secure key rotation.
+
+### Summary Table
+| Client      | How to Get JWT/API Key         | Where JWT is Generated      | Notes                        |
+|-------------|-------------------------------|----------------------------|------------------------------|
+| CLI         | Calls `/api/v1/auth/login`    | Backend                    | Stores JWT locally           |
+| Web UI      | Calls `/api/v1/auth/login`    | Backend                    | Stores JWT in memory/browser |
+| Automation  | Calls `/api/v1/auth/apikeys`  | Backend                    | User/admin can revoke/rotate |
+
+### Implementation Steps
+1. Implement `/api/v1/auth/login` for username/password login and JWT issuance.
+2. (Optional) Implement `/api/v1/auth/apikeys` for API key management (create, list, revoke).
+3. CLI and Web UI should always fetch JWTs from the backend, never generate them locally.
+
+---
+
+## Open Source Usage: Default Secret, Debug JWT, and Easy Onboarding
+
+### Out-of-the-Box Experience
+- The project ships with a default secret (`dev-secret`) and a pre-generated debug JWT (admin, long expiry) for immediate use.
+- This allows anyone to clone the repo and make authenticated API calls without extra setup.
+
+### How to Use
+1. **Clone the repo.**
+2. **Use the default secret and debug JWT** (provided in `.env.example` or documentation).
+3. **Make authenticated API calls with the debug JWT** (pass as `Authorization: Bearer <token>`).
+
+### How to Generate Your Own JWT
+- Use the provided Go script to generate a JWT with your current secret and desired claims:
+
+```go
+package main
+import (
+	"fmt"
+	"time"
+	"github.com/golang-jwt/jwt/v5"
+)
+func main() {
+	secret := "dev-secret" // or your own secret
+	claims := jwt.MapClaims{
+		"sub":  "admin",
+		"role": "admin",
+		"iat":  time.Now().Unix(),
+		"exp":  time.Now().Add(24 * time.Hour).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(secret))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(signed)
+}
+```
+
+- Run with: `go run genjwt.go`
+- Use the output as your JWT for all API calls.
+
+### How to Set Your Own Secret
+- Set the `TRAZR_JWT_SECRET` environment variable to your own value:
+  ```sh
+  export TRAZR_JWT_SECRET=my-strong-secret
+  ```
+- Generate a new JWT with the new secret using the script above.
+
+### For Production
+- **Never use the default secret or debug JWT in production.**
+- Set a strong, unique secret and rotate it regularly.
+- For advanced security, implement per-user/service JWTs, short-lived tokens, and revocation as described above.
+
+### Upgrade Path
+- The backend always validates JWTs, so you can add user management, OAuth, or other auth providers later without breaking compatibility.
+- Document and encourage users to upgrade their security posture as they move to production.
+
+---
+
+## Conclusion
+
+JWT-based API authentication is secure, scalable, and extensible. It is suitable for all client types (CLI, web, service) and supports robust role-based access control. Follow the best practices above to keep your Trazrextension deployment secure and future-proof. 

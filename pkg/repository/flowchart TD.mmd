@@ -1,0 +1,100 @@
+flowchart TD
+   %% Define color schemes with lighter backgrounds
+   classDef customerChannel fill:#f8fbff,stroke:#01579b,stroke-width:2px,color:#000
+   classDef dataSource fill:#fffef7,stroke:#f57c00,stroke-width:2px,color:#000
+   classDef agentSystem fill:#faf8ff,stroke:#4a148c,stroke-width:2px,color:#000
+   classDef gtfsSystem fill:#f0fdfa,stroke:#004d40,stroke-width:2px,color:#000
+   classDef reporting fill:#f0fff0,stroke:#1b5e20,stroke-width:2px,color:#000
+   classDef manualProcess fill:#fffef0,stroke:#e65100,stroke-width:2px,color:#000
+   classDef partnerAgency fill:#fef8ff,stroke:#880e4f,stroke-width:2px,color:#000
+   classDef connector fill:#ffffff,stroke:#424242,stroke-width:1px,color:#424242
+
+   subgraph "Customer Channels" ["📞 Customer Channels"]
+       phone["📱 Phone Calls"]
+       email["📧 Emails"]
+       webform["🌐 Web Forms"]
+       voicemail["🎤 Voicemails"]
+       website["🌍 Website Interactions"]
+   end
+
+   subgraph "Data Sources" ["📊 Data Sources"]
+       webpages["📄 Web Pages<br/>(Content, Articles, Updates)"]
+   end
+
+   subgraph "Agent Systems" ["⚙️ Agent Systems"]
+       cisco["📞 Cisco Finesse<br/>(Phone System)"]
+       dynamics["💼 Microsoft Dynamics 365<br/>(Sound Transit CRM)"]
+       salesforce["☁️ Salesforce<br/>(ORCA Card Services)"]
+       eam["🔧 EAM System<br/>(Maintenance Requests)"]
+   end
+
+   subgraph "GTFS Data Systems" ["🚌 GTFS Data Systems"]
+       gtfsStatic["📋 GTFS Static Database<br/>(Schedules, Routes, Stops)"]
+       gtfsRealtime["⚡ GTFS Real-time Database<br/>(Live Vehicle Positions, Delays)"]
+   end
+
+   subgraph "Reporting & Analytics" ["📊 Reporting & Analytics"]
+       powerbi["📈 Power BI<br/>Dashboards"]
+       reports["📋 Weekly Reports"]
+   end
+
+   subgraph "Manual Processes" ["👥 Manual Processes"]
+       manual["🔄 Manual Case Assignment<br/>🗺️ Manual Route Mapping<br/>🏷️ Manual Category Classification"]
+   end
+
+   subgraph "Partner Agencies" ["🤝 Partner Agencies"]
+       agencies["🚌 KCM (Link Operations)<br/>🚇 Other Transit Agencies"]
+   end
+
+   %% Connections with improved styling
+   phone -.->|"Call Routing"| cisco
+   email -.->|"Email Processing"| dynamics
+   email -.->|"Email Processing"| salesforce
+   webform -.->|"Form Submission"| dynamics
+   voicemail -.->|"Voice Processing"| cisco
+   website -.->|"Web Analytics"| dynamics
+
+   dynamics -->|"Data Export"| powerbi
+   salesforce -->|"Data Export"| powerbi
+   dynamics -->|"Report Generation"| reports
+   salesforce -->|"Report Generation"| reports
+
+   dynamics -->|"Maintenance Requests"| eam
+   
+   %% GTFS Data Integration
+   gtfsStatic -->|"Schedule Data"| website
+   gtfsRealtime -->|"Real-time Updates"| website
+   
+   %% Web Pages Data Integration
+   webpages -->|"Content & Updates"| website
+  
+   cisco -->|"Case Creation"| manual
+   manual -->|"Case Assignment"| dynamics
+   manual -->|"Case Assignment"| salesforce
+
+   reports -->|"Share Reports"| agencies
+   powerbi -->|"Share Dashboards"| agencies
+
+   %% Apply styling classes
+   class phone customerChannel
+   class email customerChannel
+   class webform customerChannel
+   class voicemail customerChannel
+   class website customerChannel
+   
+   class webpages dataSource
+   
+   class cisco agentSystem
+   class dynamics agentSystem
+   class salesforce agentSystem
+   class eam agentSystem
+   
+   class gtfsStatic gtfsSystem
+   class gtfsRealtime gtfsSystem
+   
+   class powerbi reporting
+   class reports reporting
+   
+   class manual manualProcess
+   
+   class agencies partnerAgency

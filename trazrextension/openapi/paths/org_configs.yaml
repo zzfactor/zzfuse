@@ -1,0 +1,163 @@
+paths:
+  /api/v1/orgs/{org_id}/configs:
+    get:
+      tags: [Configuration]
+      summary: List org configs
+      operationId: orgConfigsList
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id scope/claim matching the path parameter.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - $ref: ../components/parameters.yaml#/components/parameters/Prefix
+        - $ref: ../components/parameters.yaml#/components/parameters/Limit
+        - $ref: ../components/parameters.yaml#/components/parameters/Cursor
+        - $ref: ../components/parameters.yaml#/components/parameters/Direction
+      responses:
+        '200':
+          description: List
+          headers:
+            X-Next-Cursor:
+              $ref: ../components/headers.yaml#/components/headers/X-Next-Cursor
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigListResult }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '403': { $ref: ../components/responses.yaml#/components/responses/Forbidden }
+  /api/v1/orgs/{org_id}/configs/{key}:
+    get:
+      tags: [Configuration]
+      summary: Get an org config by key
+      operationId: orgConfigsGet
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id scope/claim matching the path parameter.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Config entry
+          headers:
+            ETag:
+              $ref: ../components/headers.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigEntryResponse }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '403': { $ref: ../components/responses.yaml#/components/responses/Forbidden }
+        '404': { $ref: ../components/responses.yaml#/components/responses/NotFound }
+    put:
+      tags: [Configuration]
+      summary: Upsert an org config (replace)
+      operationId: orgConfigsUpsert
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id scope/claim matching the path parameter.
+        Use If-Match with the previous ETag to ensure optimistic concurrency.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: ../components/parameters.yaml#/components/parameters/IfMatchHeader
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigUpsertRequest }
+      responses:
+        '200':
+          description: Upserted
+          headers:
+            ETag:
+              $ref: ../components/headers.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigEntryResponse }
+        '201':
+          description: Created
+          headers:
+            ETag:
+              $ref: ../components/headers.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigEntryResponse }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '403': { $ref: ../components/responses.yaml#/components/responses/Forbidden }
+        '412': { $ref: ../components/responses.yaml#/components/responses/PreconditionFailed }
+    patch:
+      tags: [Configuration]
+      summary: Update an org config (deep-merge objects)
+      operationId: orgConfigsPatch
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id scope/claim matching the path parameter.
+        Use If-Match with the previous ETag to ensure optimistic concurrency.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: ../components/parameters.yaml#/components/parameters/IfMatchHeader
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigPatchRequest }
+      responses:
+        '200':
+          description: Updated
+          headers:
+            ETag:
+              $ref: ../components/headers.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigEntryResponse }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '403': { $ref: ../components/responses.yaml#/components/responses/Forbidden }
+        '404': { $ref: ../components/responses.yaml#/components/responses/NotFound }
+        '412': { $ref: ../components/responses.yaml#/components/responses/PreconditionFailed }
+    delete:
+      tags: [Configuration]
+      summary: Delete an org config
+      operationId: orgConfigsDelete
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id scope/claim matching the path parameter.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '403': { $ref: ../components/responses.yaml#/components/responses/Forbidden }
+        '404': { $ref: ../components/responses.yaml#/components/responses/NotFound }

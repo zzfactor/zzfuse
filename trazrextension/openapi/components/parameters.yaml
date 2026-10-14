@@ -1,0 +1,418 @@
+components:
+  parameters:
+    IdempotencyKeyHeader:
+      in: header
+      name: Idempotency-Key
+      required: false
+      schema:
+        type: string
+      description: Optional idempotency key. Duplicate requests with the same key return the original result.
+    IfMatchHeader:
+      in: header
+      name: If-Match
+      required: false
+      schema:
+        type: string
+      description: Optional ETag for conditional updates. When provided and mismatched, server returns 412.
+    Limit:
+      in: query
+      name: limit
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 100
+      description: Maximum number of results to return. Must be between 1 and 1000. Values exceeding 1000 will be automatically normalized to 1000.
+    Cursor:
+      in: query
+      name: cursor
+      required: false
+      schema:
+        type: string
+      description: Base64-encoded cursor for pagination.
+    Offset:
+      in: query
+      name: offset
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 100000
+        default: 0
+      description: Zero-based offset for pagination. Must be between 0 and 100000.
+    Direction:
+      in: query
+      name: direction
+      required: false
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: asc
+      description: Sort direction for pagination and result ordering.
+    DirectionResults:
+      in: query
+      name: direction_results
+      required: false
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: asc
+      description: Sort direction for final result ordering. When different from direction, results are reversed. Defaults to same as direction.
+    Last:
+      in: query
+      name: last
+      required: false
+      schema:
+        type: string
+        pattern: '^[0-9]+[smhd]$'
+      description: Shorthand time window (e.g., 15m, 2h, 1d). Used when start/end not provided. Defaults to 1h.
+    CountOnly:
+      in: query
+      name: count_only
+      required: false
+      schema:
+        type: string
+        enum: [true, false, 1, 0]
+        default: false
+      description: When true, returns only the count of matching entries instead of the full results.
+    StreamCursor:
+      in: query
+      name: cursor
+      required: false
+      schema:
+        type: string
+      description: |
+        Base64-encoded cursor for streaming preload starting position. When provided:
+        - Preloads from cursor position respecting the direction parameter
+        - Maintains all filters from the original query that generated the cursor
+        - Ignores start/end/last time parameters
+        - Filter context (severity, service, text search, attributes, etc.) is preserved from cursor origin
+    Prefix:
+      in: query
+      name: prefix
+      required: false
+      schema:
+        type: string
+      description: Optional key prefix filter.
+    Topics:
+      in: query
+      name: topics
+      required: false
+      schema:
+        type: array
+        items:
+          type: string
+      style: form
+      explode: true
+      description: Optional list of topics to include (e.g., mcp,alerts,system). If omitted, all topics are streamed.
+    WaitForEstablished:
+      in: query
+      name: wait_for_established
+      required: false
+      schema:
+        type: boolean
+        default: false
+      description: If true, connection waits until subscription is established before returning the first message.
+    Start:
+      in: query
+      name: start
+      required: false
+      schema:
+        type: string
+        format: date-time
+        pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$'
+      description: ISO 8601 timestamp (RFC3339 format) - include entries >= this time. Must be before end time if both are provided.
+    End:
+      in: query
+      name: end
+      required: false
+      schema:
+        type: string
+        format: date-time
+        pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$'
+      description: ISO 8601 timestamp (RFC3339 format) - include entries <= this time. Must be after start time if both are provided.
+    service:
+      in: query
+      name: service
+      required: false
+      schema:
+        type: string
+      description: Filter by service name
+    severity:
+      in: query
+      name: severity
+      required: false
+      schema:
+        type: string
+        enum: [trace, debug, info, warn, error, fatal]
+      description: Filter by log severity/level
+    timestamp_gte:
+      in: query
+      name: timestamp_gte
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: ISO 8601 timestamp - include logs >= this time
+    timestamp_lte:
+      in: query
+      name: timestamp_lte
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: ISO 8601 timestamp - include logs <= this time
+    query:
+      in: query
+      name: q
+      required: false
+      schema:
+        type: string
+      description: Search query to filter logs
+    schema:
+      in: query
+      name: schema
+      required: false
+      schema:
+        type: string
+        default: "otel"
+      description: Database schema name
+    
+    Schema:
+      in: query
+      name: schema
+      required: false
+      schema:
+        type: string
+        default: "otel"
+      description: Database schema name
+    MetricType:
+      in: query
+      name: type
+      required: false
+      schema:
+        type: string
+        enum: [gauge, sum, histogram, summary, exponential_histogram]
+      description: Filter by metric type
+    Severity:
+      in: query
+      name: severity
+      required: false
+      schema:
+        type: string
+        enum: [trace, debug, info, warn, error, fatal]
+      description: Filter by log severity/level
+    Service:
+      in: query
+      name: service
+      required: false
+      schema:
+        type: string
+        minLength: 1
+      description: Filter by service name
+    Query:
+      in: query
+      name: q
+      required: false
+      schema:
+        type: string
+        minLength: 1
+      description: Search query to filter logs, traces, or metrics
+    TimestampGte:
+      in: query
+      name: timestamp_gte
+      required: false
+      schema:
+        type: string
+        format: date-time
+        pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$'
+      description: ISO 8601 timestamp (RFC3339 format) - include entries >= this time
+    TimestampLte:
+      in: query
+      name: timestamp_lte
+      required: false
+      schema:
+        type: string
+        format: date-time
+        pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$'
+      description: ISO 8601 timestamp (RFC3339 format) - include entries <= this time
+    
+    # Service Name Wildcard Filtering Parameters (Mutually Exclusive)
+    ServiceNameLike:
+      in: query
+      name: service_name_like
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        pattern: '^[^\x00]*$'
+      description: |
+        SQL LIKE pattern for service name filtering. Supports % (any characters) and _ (single character) wildcards.
+        Examples: 'web-%' matches 'web-api', 'web-frontend'; 'api-_-service' matches 'api-v-service', 'api-1-service'.
+        Cannot be used with other service name filters.
+    
+    ServiceNameRegex:
+      in: query
+      name: service_name_regex
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        pattern: '^[^\x00]*$'
+      description: |
+        Regular expression pattern for service name filtering.
+        Examples: '^(api|web)-.*' matches services starting with 'api-' or 'web-'; '.*-(prod|staging)$' matches services ending with '-prod' or '-staging'.
+        Cannot be used with other service name filters.
+    
+    ServiceNamePrefix:
+      in: query
+      name: service_name_prefix
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        pattern: '^[^\x00]*$'
+      description: |
+        Prefix pattern for service name filtering. Matches services that start with the specified string.
+        Example: 'microservice-' matches 'microservice-auth', 'microservice-payment'.
+        Cannot be used with other service name filters.
+    
+    ServiceNameSuffix:
+      in: query
+      name: service_name_suffix
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        pattern: '^[^\x00]*$'
+      description: |
+        Suffix pattern for service name filtering. Matches services that end with the specified string.
+        Example: '-prod' matches 'api-gateway-prod', 'web-frontend-prod'.
+        Cannot be used with other service name filters.
+    
+    ServiceNameContains:
+      in: query
+      name: service_name_contains
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        pattern: '^[^\x00]*$'
+      description: |
+        Substring pattern for service name filtering. Matches services that contain the specified string.
+        Example: 'payment' matches 'user-payment-api', 'payment-processor', 'payment-gateway'.
+        Cannot be used with other service name filters.
+    
+    ServiceNames:
+      in: query
+      name: service_in
+      required: false
+      schema:
+        type: array
+        items:
+          type: string
+          minLength: 1
+        minItems: 1
+        maxItems: 100
+      style: form
+      explode: true
+      description: |
+        Multiple exact service names for filtering (OR logic). Matches entries from any of the specified services.
+        Example: ['api-gateway', 'web-frontend', 'payment-service'].
+        Cannot be used with other service name filters.
+    
+    # Advanced Attribute Filtering Parameters
+    AttrEq:
+      in: query
+      name: attr.eq
+      required: false
+      schema:
+        type: object
+        additionalProperties:
+          type: string
+      style: deepObject
+      explode: true
+      description: |
+        Exact match filtering for attributes using deepObject syntax.
+        Example: attr.eq[user_id]=123&attr.eq[environment]=production
+        Matches entries where specified attributes have exact values.
+    
+    AttrIn:
+      in: query
+      name: attr.in
+      required: false
+      schema:
+        type: object
+        additionalProperties:
+          type: array
+          items:
+            type: string
+      style: deepObject
+      explode: true
+      description: |
+        Multiple value filtering for attributes using deepObject syntax.
+        Example: attr.in[status]=success,pending&attr.in[method]=GET,POST
+        Matches entries where specified attributes have any of the listed values.
+    
+    AttrExists:
+      in: query
+      name: attr.exists
+      required: false
+      schema:
+        type: object
+        additionalProperties:
+          type: boolean
+      style: deepObject
+      explode: true
+      description: |
+        Existence filtering for attributes using deepObject syntax.
+        Example: attr.exists[trace_id]=true&attr.exists[span_id]=false
+        Matches entries where specified attributes exist (true) or don't exist (false).
+    
+    ResAttrEq:
+      in: query
+      name: res_attr.eq
+      required: false
+      schema:
+        type: object
+        additionalProperties:
+          type: string
+      style: deepObject
+      explode: true
+      description: |
+        Exact match filtering for resource attributes using deepObject syntax.
+        Example: res_attr.eq[host.name]=server-01&res_attr.eq[service.version]=1.2.3
+        Matches entries where specified resource attributes have exact values.
+    
+    ResAttrIn:
+      in: query
+      name: res_attr.in
+      required: false
+      schema:
+        type: object
+        additionalProperties:
+          type: array
+          items:
+            type: string
+      style: deepObject
+      explode: true
+      description: |
+        Multiple value filtering for resource attributes using deepObject syntax.
+        Example: res_attr.in[environment]=prod,staging&res_attr.in[region]=us-east,us-west
+        Matches entries where specified resource attributes have any of the listed values.
+    
+    ResAttrExists:
+      in: query
+      name: res_attr.exists
+      required: false
+      schema:
+        type: object
+        additionalProperties:
+          type: boolean
+      style: deepObject
+      explode: true
+      description: |
+        Existence filtering for resource attributes using deepObject syntax.
+        Example: res_attr.exists[k8s.pod.name]=true&res_attr.exists[aws.region]=false
+        Matches entries where specified resource attributes exist (true) or don't exist (false).

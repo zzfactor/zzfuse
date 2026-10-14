@@ -1,0 +1,204 @@
+paths:
+  /api/v1/stream/metrics:
+    get:
+      tags:
+        - Metrics
+        - Realtime Streams
+      summary: Stream metrics in real-time (WebSocket)
+      operationId: streamMetrics
+      description: |
+        Establishes a WebSocket connection for real-time metric streaming with optional preloading and dynamic filtering.
+        
+        **Connection Flow:**
+        1. Client connects with initial filters via query parameters
+        2. Optional preload of historical data (if cursor/time parameters provided)
+        3. Real-time streaming of new metric entries matching filters
+        4. Dynamic filter updates via WebSocket messages
+        
+        **WebSocket Messages:**
+        - **Incoming (Client → Server):**
+          - `{"type":"set_filter","filter":{...}}` - Update filters dynamically
+          - `{"type":"keepalive"}` - Keep connection alive
+        - **Outgoing (Server → Client):**
+          - Metric entries as JSON objects
+          - `{"type":"ready"}` - Preload complete (if applicable)
+          - `{"type":"ack"}` - Filter update acknowledged
+          - `{"type":"error","message":"..."}` - Error messages
+          - `{"type":"dropped","count":N}` - Dropped message notification
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Start
+        - $ref: ../components/parameters.yaml#/components/parameters/End
+        - $ref: ../components/parameters.yaml#/components/parameters/Last
+        - $ref: ../components/parameters.yaml#/components/parameters/StreamCursor
+        - $ref: ../components/parameters.yaml#/components/parameters/Limit
+        - $ref: ../components/parameters.yaml#/components/parameters/Direction
+        - $ref: ../components/parameters.yaml#/components/parameters/Service
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNames
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameLike
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameRegex
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNamePrefix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameSuffix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameContains
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+        - $ref: ../components/parameters.yaml#/components/parameters/TimestampGte
+        - $ref: ../components/parameters.yaml#/components/parameters/TimestampLte
+        - $ref: ../components/parameters.yaml#/components/parameters/Query
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrEq
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrIn
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrExists
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrEq
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrIn
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrExists
+        - $ref: ../components/parameters.yaml#/components/parameters/WaitForEstablished
+        - name: metric_name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by metric name
+        - name: unit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by metric unit
+        - name: description
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by metric description
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade successful)
+        '200':
+          description: Example stream messages and protocol documentation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  protocol:
+                    type: string
+                    example: "WebSocket"
+                  message_types:
+                    type: array
+                    items:
+                      type: string
+                    example: ["metric_entry", "ready", "ack", "error", "dropped"]
+              examples:
+                gauge_entry:
+                  summary: Gauge metric entry
+                  value:
+                    id: 12345
+                    timestamp: "2024-01-01T12:00:00Z"
+                    service_name: "api-gateway"
+                    metric_name: "cpu_usage_percent"
+                    metric_type: "gauge"
+                    unit: "percent"
+                    value: 75.5
+                    attributes:
+                      host: "server-01"
+                      environment: "production"
+                sum_entry:
+                  summary: Sum metric entry
+                  value:
+                    id: 12346
+                    timestamp: "2024-01-01T12:00:00Z"
+                    service_name: "payment-service"
+                    metric_name: "requests_total"
+                    metric_type: "sum"
+                    unit: "1"
+                    value: 1500
+                    attributes:
+                      method: "POST"
+                      status: "200"
+                ready_message:
+                  summary: Preload complete signal
+                  value:
+                    type: "ready"
+                filter_update:
+                  summary: Client filter update message
+                  value:
+                    type: "set_filter"
+                    filter:
+                      service_name_contains: "payment"
+                      metric_type: "gauge"
+        '400':
+          $ref: ../components/responses.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../components/responses.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../components/responses.yaml#/components/responses/Forbidden
+        '422':
+          $ref: ../components/responses.yaml#/components/responses/UnprocessableEntity
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError
+
+  /api/v1/stream/metrics/sum:
+    get:
+      tags:
+        - Metrics
+        - Realtime Streams
+      summary: Stream sum metrics in real-time (WebSocket)
+      operationId: streamSumMetrics
+      description: |
+        Establishes a WebSocket connection for real-time sum metric streaming with optional preloading and dynamic filtering.
+        Specialized endpoint for sum-type metrics only.
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Start
+        - $ref: ../components/parameters.yaml#/components/parameters/End
+        - $ref: ../components/parameters.yaml#/components/parameters/Last
+        - $ref: ../components/parameters.yaml#/components/parameters/StreamCursor
+        - $ref: ../components/parameters.yaml#/components/parameters/Limit
+        - $ref: ../components/parameters.yaml#/components/parameters/Direction
+        - $ref: ../components/parameters.yaml#/components/parameters/Service
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNames
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameLike
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameRegex
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNamePrefix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameSuffix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameContains
+        - $ref: ../components/parameters.yaml#/components/parameters/Query
+        - $ref: ../components/parameters.yaml#/components/parameters/schema
+        - $ref: ../components/parameters.yaml#/components/parameters/WaitForEstablished
+        - name: metric_name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by metric name
+        - name: unit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by metric unit
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade successful)
+        '200':
+          description: Example stream messages and protocol documentation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  protocol:
+                    type: string
+                    example: "WebSocket"
+                  message_types:
+                    type: array
+                    items:
+                      type: string
+                    example: ["sum_metric_entry", "ready", "ack", "error", "dropped"]
+        '400':
+          $ref: ../components/responses.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../components/responses.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../components/responses.yaml#/components/responses/Forbidden
+        '422':
+          $ref: ../components/responses.yaml#/components/responses/UnprocessableEntity
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError

@@ -1,0 +1,1466 @@
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable message
+        code:
+          type: string
+          description: Stable machine-readable error code
+        details:
+          type: object
+          additionalProperties: true
+          description: Optional structured details for debugging
+      example:
+        error: "Invalid request payload"
+        code: "bad_request"
+        details:
+          field: "Value"
+          reason: "missing"
+    ValidationError:
+      type: object
+      properties:
+        field:
+          type: string
+          description: The field that failed validation
+        message:
+          type: string
+          description: Human-readable validation error message
+      required: [field, message]
+      example:
+        field: "limit"
+        message: "limit cannot exceed 1000"
+    ValidationErrors:
+      type: object
+      properties:
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          description: Collection of validation errors
+      required: [errors]
+      example:
+        errors:
+          - field: "start"
+            message: "invalid start time format, expected RFC3339"
+          - field: "limit"
+            message: "limit cannot exceed 1000"
+    PaginationResponse:
+      type: object
+      properties:
+        next_cursor:
+          type: string
+          nullable: true
+          description: Base64-encoded cursor for the next page of results
+        prev_cursor:
+          type: string
+          nullable: true
+          description: Base64-encoded cursor for the previous page of results
+        has_next_page:
+          type: boolean
+          description: Whether there are more results available after this page
+        has_prev_page:
+          type: boolean
+          description: Whether there are more results available before this page
+        total_count:
+          type: integer
+          format: int64
+          description: Total number of entries matching the query (may be approximate for large datasets)
+      required: [has_next_page, has_prev_page, total_count]
+      example:
+        next_cursor: "eyJpZCI6MTIzNDU2LCJ0cyI6IjIwMjMtMTAtMTVUMTQ6MzA6MDBaIn0="
+        prev_cursor: null
+        has_next_page: true
+        has_prev_page: false
+        total_count: 300500
+    ConfigEntryResponse:
+      type: object
+      properties:
+        Key:
+          type: string
+          minLength: 1
+        Value:
+          type: object
+          additionalProperties: true
+        ETag:
+          type: string
+        CreatedAt:
+          type: string
+          format: date-time
+        UpdatedAt:
+          type: string
+          format: date-time
+      example:
+        Key: "theme"
+        Value: { color: "dark", font: "system" }
+        ETag: "\"3a7f-5c2\""
+        CreatedAt: "2025-08-19T12:34:56Z"
+        UpdatedAt: "2025-08-19T12:35:56Z"
+    ConfigUpsertRequest:
+      type: object
+      properties:
+        Value:
+          type: object
+          additionalProperties: true
+      required: [Value]
+      example:
+        Value: { color: "dark", font: "system" }
+    ConfigPatchRequest:
+      type: object
+      description: JSON object to deep-merge into existing Value. Object fields are merged; arrays are replaced.
+      additionalProperties: true
+      example:
+        font: "system-ui"
+    ConfigListResult:
+      type: object
+      properties:
+        Entries:
+          type: array
+          items:
+            type: object
+            properties:
+              Key:
+                type: string
+                minLength: 1
+              UpdatedAt:
+                type: string
+                format: date-time
+        NextCursor:
+          type: string
+        HasMore:
+          type: boolean
+      example:
+        Entries:
+          - { Key: "theme", UpdatedAt: "2025-08-19T12:35:56Z" }
+          - { Key: "notifications", UpdatedAt: "2025-08-19T12:30:00Z" }
+        NextCursor: "eyJvZmZzZXQiOiJ0aGVtZSJ9"
+        HasMore: true
+
+    NotificationEnqueueRequest:
+      type: object
+      required: [topic, data]
+      properties:
+        topic:
+          type: string
+          description: Notification topic (e.g., mcp, alerts, system)
+          minLength: 1
+        data:
+          type: object
+          additionalProperties: true
+        ttl_seconds:
+          type: integer
+          description: Optional retention in seconds (default 1209600 = 14 days)
+          minimum: 1
+        meta:
+          type: object
+          additionalProperties: true
+      example:
+        topic: "alerts"
+        data: { title: "High CPU", body: "Server xyz is above 90%" }
+        ttl_seconds: 3600
+        meta: { priority: "high" }
+    LogEntryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique log entry identifier
+        timestamp_ns:
+          type: integer
+          format: int64
+          description: Log timestamp in nanoseconds
+        timestamp:
+          type: string
+          format: date-time
+          description: Human-readable timestamp
+        observed_timestamp:
+          type: string
+          format: date-time
+          description: When the log was observed
+        trace_id:
+          type: string
+          description: OpenTelemetry trace ID
+        span_id:
+          type: string
+          description: OpenTelemetry span ID
+        flags:
+          type: integer
+          description: Log flags
+        severity_text:
+          type: string
+          description: Log severity level as text
+        severity_number:
+          type: integer
+          description: Log severity level as number
+        service_name:
+          type: string
+          description: Service name that generated the log
+        resource_attributes:
+          type: object
+          additionalProperties: true
+          description: Resource attributes
+        scope_name:
+          type: string
+          description: Scope name
+        scope_version:
+          type: string
+          description: Scope version
+        scope_attributes:
+          type: object
+          additionalProperties: true
+          description: Scope attributes
+        scope_dropped_attr_count:
+          type: integer
+          description: Number of dropped scope attributes
+        scope_schema_url:
+          type: string
+          description: Scope schema URL
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Log attributes
+        dropped_attr_count:
+          type: integer
+          description: Number of dropped attributes
+        body:
+          type: string
+          description: Log message body
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional metadata
+        resource_schema_url:
+          type: string
+          description: Resource schema URL
+      example:
+        id: 123456
+        timestamp_ns: 1705312200000000000
+        timestamp: "2024-01-15T10:30:00Z"
+        service_name: "api-gateway"
+        severity_text: "info"
+        body: "Request processed successfully"
+        trace_id: "abc123def456"
+        span_id: "xyz789"
+
+    LogsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEntryResponse'
+          description: Array of log entries
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
+        # Legacy fields for backward compatibility
+        next_cursor:
+          type: string
+          description: Base64-encoded cursor for next page (deprecated, use pagination.next_cursor)
+        has_more:
+          type: boolean
+          description: Whether there are more results available (deprecated, use pagination.has_next_page)
+        total_count:
+          type: integer
+          description: Total number of entries matching the filter (deprecated, use pagination.total_count)
+      example:
+        entries:
+          - id: 123456
+            timestamp: "2024-01-15T10:30:00Z"
+            service_name: "api-gateway"
+            severity_text: "info"
+            body: "Request processed successfully"
+        pagination:
+          next_cursor: "eyJpZCI6MTIzNDU3LCJ0aW1lc3RhbXAiOiIyMDI0LTAxLTE1VDEwOjMxOjAwWiJ9"
+          prev_cursor: "eyJpZCI6MTIzNDU2LCJ0aW1lc3RhbXAiOiIyMDI0LTAxLTE1VDEwOjMwOjAwWiJ9"
+          has_next_page: true
+          has_prev_page: false
+          total_count: 25000
+
+    CursorGenerationResponse:
+      type: object
+      properties:
+        cursor:
+          type: string
+          description: Base64-encoded cursor token for the specified position
+        position:
+          type: object
+          properties:
+            offset:
+              type: integer
+              description: Actual offset position (may differ from requested if out of bounds)
+            total_count:
+              type: integer
+              description: Total number of entries matching the filter
+            direction:
+              type: string
+              enum: [asc, desc]
+              description: Pagination direction used
+        entry_preview:
+          type: object
+          properties:
+            id:
+              type: integer
+              format: int64
+              description: Log entry ID
+            timestamp:
+              type: string
+              format: date-time
+              description: Log timestamp
+            service:
+              type: string
+              description: Service name
+            severity:
+              type: string
+              description: Log severity level
+            message:
+              type: string
+              description: Log message body
+      example:
+        cursor: "eyJpZCI6MTIzNDU2LCJ0aW1lc3RhbXAiOiIyMDI0LTAxLTE1VDEwOjMwOjAwWiJ9"
+        position:
+          offset: 5000
+          total_count: 25000
+          direction: "asc"
+        entry_preview:
+          id: 123456
+          timestamp: "2024-01-15T10:30:00Z"
+          service: "api-gateway"
+          severity: "info"
+          message: "Request processed successfully"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error type identifier
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          additionalProperties: true
+          description: Additional error details
+      example:
+        error: "invalid_parameter"
+        message: "offset must be a non-negative integer"
+        details:
+          parameter: "offset"
+          value: "-100"
+
+    TraceEntryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique trace entry identifier
+        timestamp_ns:
+          type: integer
+          format: int64
+          description: Trace timestamp in nanoseconds
+        timestamp:
+          type: string
+          format: date-time
+          description: Human-readable timestamp
+        trace_id:
+          type: string
+          description: OpenTelemetry trace ID
+        span_id:
+          type: string
+          description: OpenTelemetry span ID
+        parent_span_id:
+          type: string
+          description: Parent span ID
+        trace_state:
+          type: string
+          description: Trace state
+        name:
+          type: string
+          description: Span name
+        span_kind:
+          type: string
+          description: Span kind
+        service_name:
+          type: string
+          description: Service name that generated the trace
+        resource_attributes:
+          type: object
+          additionalProperties: true
+          description: Resource attributes
+        scope_name:
+          type: string
+          description: Scope name
+        scope_version:
+          type: string
+          description: Scope version
+        scope_attributes:
+          type: object
+          additionalProperties: true
+          description: Scope attributes
+        scope_dropped_attr_count:
+          type: integer
+          description: Number of dropped scope attributes
+        scope_schema_url:
+          type: string
+          description: Scope schema URL
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Span attributes
+        dropped_attr_count:
+          type: integer
+          description: Number of dropped attributes
+        events:
+          type: array
+          items:
+            type: object
+          description: Span events
+        dropped_events_count:
+          type: integer
+          description: Number of dropped events
+        links:
+          type: array
+          items:
+            type: object
+          description: Span links
+        dropped_links_count:
+          type: integer
+          description: Number of dropped links
+        status_code:
+          type: string
+          description: Span status code
+        status_message:
+          type: string
+          description: Span status message
+        end_time:
+          type: string
+          format: date-time
+          description: Span end time
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional metadata
+        resource_schema_url:
+          type: string
+          description: Resource schema URL
+      example:
+        id: 123456
+        timestamp_ns: 1705312200000000000
+        timestamp: "2024-01-15T10:30:00Z"
+        service_name: "api-gateway"
+        name: "HTTP GET /api/users"
+        trace_id: "abc123def456"
+        span_id: "xyz789"
+
+    TracesResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/TraceEntryResponse'
+          description: Array of trace entries
+        next_cursor:
+          type: string
+          description: Base64-encoded cursor for next page
+        has_more:
+          type: boolean
+          description: Whether there are more results available
+        total_count:
+          type: integer
+          description: Total number of entries matching the filter
+      example:
+        entries:
+          - id: 123456
+            timestamp: "2024-01-15T10:30:00Z"
+            service_name: "api-gateway"
+            name: "HTTP GET /api/users"
+            trace_id: "abc123def456"
+        next_cursor: "eyJpZCI6MTIzNDU3LCJ0aW1lc3RhbXAiOiIyMDI0LTAxLTE1VDEwOjMxOjAwWiJ9"
+        has_more: true
+        total_count: 25000
+
+    MetricEntryResponse:
+      type: object
+      description: A metric point. Fields depend on its type; absent optional values are omitted, while present zero
+        values are retained. IDs are unique within a metric table, so typed ID routes disambiguate overlapping IDs.
+      required:
+      - id
+      - timestamp_ns
+      - timestamp
+      - service_name
+      - name
+      properties:
+        id:
+          type: integer
+          format: int64
+        timestamp_ns:
+          type: integer
+          format: int64
+        timestamp:
+          type: string
+          format: date-time
+        service_name:
+          type: string
+        service_namespace:
+          type: string
+        service_instance_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        unit:
+          type: string
+        scope_name:
+          type: string
+        scope_version:
+          type: string
+        resource_schema_url:
+          type: string
+        scope_schema_url:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        value:
+          type: number
+        sum:
+          type: number
+        min:
+          type: number
+        max:
+          type: number
+        zero_threshold:
+          type: number
+        count:
+          type: integer
+          format: int64
+        zero_count:
+          type: integer
+          format: int64
+        flags:
+          type: integer
+          format: int32
+        scope_dropped_attr_count:
+          type: integer
+          format: int32
+        aggregation_temporality:
+          type: integer
+          format: int32
+        scale:
+          type: integer
+          format: int32
+        positive_offset:
+          type: integer
+          format: int32
+        negative_offset:
+          type: integer
+          format: int32
+        is_monotonic:
+          type: boolean
+        attributes:
+          type: object
+          additionalProperties: true
+        resource_attributes:
+          type: object
+          additionalProperties: true
+        scope_attributes:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+        buckets:
+          description: Histogram distribution, including bucket_counts and explicit_bounds for OTLP records.
+        quantiles:
+          type: array
+          items:
+            type: object
+            properties:
+              quantile:
+                type: number
+              value:
+                type: number
+        exemplars:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        positive_bucket_counts:
+          type: array
+          items:
+            type: integer
+            format: int64
+        negative_bucket_counts:
+          type: array
+          items:
+            type: integer
+            format: int64
+      example:
+        id: 1
+        timestamp_ns: 1791979200000000000
+        timestamp: '2026-10-14T12:00:00Z'
+        service_name: api-gateway
+        name: http_requests_total
+        value: 0
+        aggregation_temporality: 2
+        is_monotonic: true
+    MetricsResponse:
+      type: object
+      required:
+      - data
+      - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricEntryResponse'
+        pagination:
+          type: object
+          required:
+          - next_cursor
+          - prev_cursor
+          - has_next_page
+          - has_prev_page
+          properties:
+            next_cursor:
+              type: string
+            prev_cursor:
+              type: string
+            has_next_page:
+              type: boolean
+            has_prev_page:
+              type: boolean
+    NotificationEnqueueResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          example: queued
+        expires_at:
+          type: string
+          format: date-time
+      example:
+        id: 123456
+        status: "queued"
+        expires_at: "2025-08-19T13:34:56Z"
+    WSNotification:
+      type: object
+      required: [type, topic, data, ts, id]
+      properties:
+        type:
+          type: string
+          enum: [notification]
+        topic:
+          type: string
+          minLength: 1
+        data:
+          type: object
+          additionalProperties: true
+        ts:
+          type: string
+          format: date-time
+        id:
+          type: integer
+        meta:
+          type: object
+          additionalProperties: true
+        seq:
+          type: integer
+      example:
+        type: notification
+        topic: alerts
+        data: { title: "High CPU", body: "Server xyz is above 90%" }
+        ts: "2025-08-19T12:40:00Z"
+        id: 123457
+        meta: { priority: "high" }
+        seq: 12
+    WSReady:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [ready]
+      example:
+        type: ready
+    WSDropped:
+      type: object
+      required: [type, count]
+      properties:
+        type:
+          type: string
+          enum: [dropped]
+        count:
+          type: integer
+          minimum: 1
+      example:
+        type: dropped
+        count: 3
+
+    # Vector Store Search Schemas
+    VectorStoreSearchRequest:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query text
+        top_k:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 5
+          description: Number of top results to return
+        store_id:
+          type: string
+          description: ID of the vector store to search
+        score_threshold:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          default: 0.3
+          description: Minimum similarity score threshold
+      required: [query, store_id]
+      example:
+        query: "error handling in authentication"
+        top_k: 10
+        store_id: "main_docs"
+        score_threshold: 0.5
+
+    VectorStoreSearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/VectorStoreDocument'
+          description: Search results ordered by relevance
+      required: [results]
+      example:
+        results:
+          - id: "doc_123"
+            content: {"title": "Auth Error Handling", "text": "..."}
+            score: 0.85
+            timestamp: "2025-08-30T12:00:00Z"
+
+    VectorStoreDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Document identifier
+        content:
+          type: object
+          description: Document content (structure varies by document type)
+        score:
+          type: number
+          format: float
+          description: Similarity score (0-1, higher is more similar)
+        timestamp:
+          type: string
+          format: date-time
+          description: Document timestamp (optional)
+      required: [id, content, score]
+      example:
+        id: "doc_123"
+        content:
+          title: "Authentication Error Handling"
+          text: "Best practices for handling authentication errors..."
+        score: 0.85
+        timestamp: "2025-08-30T12:00:00Z"
+
+    # Configuration Management Schemas
+    ConfigResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique configuration identifier
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Configuration name
+        description:
+          type: string
+          description: Optional configuration description
+        enabled:
+          type: boolean
+          description: Whether this configuration is active
+        priority:
+          type: integer
+          description: Configuration priority for ordering
+        created_at:
+          type: string
+          format: date-time
+          description: Configuration creation timestamp (ISO8601 format)
+        updated_at:
+          type: string
+          format: date-time
+          description: Configuration last update timestamp (ISO8601 format)
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional configuration metadata
+        config:
+          type: object
+          additionalProperties: true
+          description: Type-specific configuration data
+      required: [id, name, enabled, priority, created_at, updated_at, config]
+      example:
+        id: 1
+        name: "otel-schema"
+        description: "Standard OpenTelemetry schema configuration"
+        enabled: true
+        priority: 1
+        created_at: "2024-01-15T10:30:00Z"
+        updated_at: "2024-01-15T10:30:00Z"
+        metadata:
+          version: "1.0"
+        config:
+          database_schema: "otel"
+          priority: 1
+          routing:
+            logs: "otel_logs"
+            traces: "otel_traces"
+
+    ConfigListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfigResponse'
+          description: Array of configuration entries
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
+      required: [data, pagination]
+      example:
+        data:
+          - id: 1
+            name: "otel-schema"
+            enabled: true
+            created_at: "2024-01-15T10:30:00Z"
+            updated_at: "2024-01-15T10:30:00Z"
+            config:
+              database_schema: "otel"
+        pagination:
+          has_next_page: false
+          has_prev_page: false
+          total_count: 1
+
+    ConfigCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Configuration name (required)
+        description:
+          type: string
+          description: Optional configuration description
+        enabled:
+          type: boolean
+          default: true
+          description: Whether this configuration should be active
+        priority:
+          type: integer
+          description: Configuration priority for ordering
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional configuration metadata
+        config:
+          type: object
+          additionalProperties: true
+          description: Type-specific configuration data
+      required: [name, enabled, priority, config]
+      examples:
+        schema_config:
+          summary: Schema Configuration
+          value:
+            name: "production-otel"
+            description: "Production OpenTelemetry schema"
+            enabled: true
+            priority: 1
+            metadata:
+              version: "1.0"
+              environment: "production"
+            config:
+              database_schema: "otel"
+              priority: 1
+              routing:
+                logs: "otel_logs"
+                traces: "otel_traces"
+                metrics: "otel_metrics"
+        processor_config:
+          summary: Processor Configuration
+          value:
+            name: "logs-embedding-processor"
+            description: "Process logs for embedding generation"
+            enabled: true
+            priority: 1
+            metadata:
+              processing_mode: "batch"
+              batch_size: 100
+            config:
+              database_id: 1
+              vectorstore_id: 1
+              template_id: 1
+              processing_mode: "template"
+              routing:
+                logs: "otel_logs"
+              filter:
+                signal_type: "logs"
+                level: ["error", "warn"]
+        embedding_config:
+          summary: Embedding Configuration
+          value:
+            name: "openai-ada-002"
+            description: "OpenAI text-embedding-ada-002 provider"
+            enabled: true
+            priority: 1
+            metadata:
+              provider_type: "openai"
+              rate_limit: 1000
+            config:
+              provider: "openai"
+              model: "text-embedding-ada-002"
+              dimension: 1536
+              max_context_length: 8191
+              rate_limit: 1000
+              timeout: 30
+              normalize: false
+              headers:
+                Authorization: "Bearer sk-..."
+              endpoint: "https://api.openai.com/v1/embeddings"
+        template_config:
+          summary: Template Configuration
+          value:
+            name: "log-embedding-template"
+            description: "Template for processing log entries"
+            enabled: true
+            priority: 1
+            metadata:
+              version: "1.0"
+              template_type: "embedding"
+            config:
+              content:
+                log_template: "{{.message}} {{.level}}"
+                trace_template: "{{.operation_name}} {{.service_name}}"
+              template_metadata:
+                fields: ["message", "level", "timestamp"]
+                required: ["message"]
+        vectorstore_config:
+          summary: Vector Store Configuration
+          value:
+            name: "postgres-vectorstore"
+            description: "PostgreSQL vector store with pgvector"
+            enabled: true
+            priority: 1
+            metadata:
+              store_type: "postgres"
+              version: "1.0"
+            config:
+              provider: "postgres"
+              endpoint: "postgresql://localhost:5432/vectordb"
+              user: "vectoruser"
+              database: "vectors"
+              embedding_id: 1
+              batch_size: 100
+              flush_interval_ms: 200
+              max_retries: 3
+              max_open_conns: 25
+              max_idle_conns: 5
+              conn_max_lifetime_ms: 3600000
+              batch_error_policy: "retry"
+              max_concurrent_batches: 8
+              vendor_specific_options:
+                index_type: "ivfflat"
+                lists: 100
+
+    ConfigUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Configuration name (optional for updates)
+        description:
+          type: string
+          description: Optional configuration description
+        enabled:
+          type: boolean
+          description: Whether this configuration should be active
+        priority:
+          type: integer
+          description: Configuration priority for ordering
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional configuration metadata
+        config:
+          type: object
+          additionalProperties: true
+          description: Type-specific configuration data
+      examples:
+        partial_update:
+          summary: Partial Configuration Update
+          value:
+            name: "updated-processor"
+            enabled: false
+            metadata:
+              version: "1.1"
+              last_modified_by: "admin"
+        full_update:
+          summary: Full Configuration Update
+          value:
+            name: "updated-schema"
+            description: "Updated schema configuration"
+            enabled: true
+            priority: 5
+            metadata:
+              version: "2.0"
+              environment: "staging"
+            config:
+              database_schema: "staging"
+              routing:
+                logs: "staging_logs"
+                traces: "staging_traces"
+
+    ConfigStatisticsResponse:
+      type: object
+      properties:
+        schema_configs:
+          type: integer
+          format: int64
+          description: Number of schema configurations
+        processor_configs:
+          type: integer
+          format: int64
+          description: Number of processor configurations
+        embedding_configs:
+          type: integer
+          format: int64
+          description: Number of embedding configurations
+        template_configs:
+          type: integer
+          format: int64
+          description: Number of template configurations
+        vectorstore_configs:
+          type: integer
+          format: int64
+          description: Number of vector store configurations
+        total_configs:
+          type: integer
+          format: int64
+          description: Total number of configurations across all types
+      required: [schema_configs, processor_configs, embedding_configs, template_configs, vectorstore_configs, total_configs]
+      example:
+        schema_configs: 3
+        processor_configs: 5
+        embedding_configs: 2
+        template_configs: 4
+        vectorstore_configs: 1
+        total_configs: 15
+
+    # Runs Management Schemas
+    RunsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunEntryResponse'
+          description: Array of run entries
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
+      required: [data, pagination]
+      example:
+        data:
+          - id: 1
+            name: "ML Training Run"
+            status: "running"
+            created_at: "2024-01-15T10:30:00Z"
+            updated_at: "2024-01-15T10:30:00Z"
+        pagination:
+          has_next_page: false
+          has_prev_page: false
+          total_count: 1
+
+    RunEntryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique run identifier
+        name:
+          type: string
+          description: Run name
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+          description: Current run status
+        description:
+          type: string
+          description: Optional run description
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional run metadata
+        created_at:
+          type: string
+          format: date-time
+          description: Run creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Run last update timestamp
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Run start timestamp
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Run completion timestamp
+      required: [id, name, status, created_at, updated_at]
+      example:
+        id: 1
+        name: "ML Training Run"
+        status: "running"
+        description: "Training neural network model"
+        metadata:
+          model_type: "transformer"
+          epochs: 100
+        created_at: "2024-01-15T10:30:00Z"
+        updated_at: "2024-01-15T10:35:00Z"
+        started_at: "2024-01-15T10:31:00Z"
+        completed_at: null
+
+    RunCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Run name (required)
+        description:
+          type: string
+          description: Optional run description
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional run metadata
+      required: [name]
+      example:
+        name: "ML Training Run"
+        description: "Training neural network model"
+        metadata:
+          model_type: "transformer"
+          epochs: 100
+
+    RunUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Run name (optional for updates)
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+          description: Run status
+        description:
+          type: string
+          description: Optional run description
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional run metadata
+      example:
+        status: "completed"
+        metadata:
+          final_accuracy: 0.95
+          training_time: "2h 30m"
+
+    # Profiles Management Schemas
+    ProfilesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfileEntryResponse'
+        pagination:
+          type: object
+          properties:
+            next_cursor:
+              type: string
+            prev_cursor:
+              type: string
+            has_next_page:
+              type: boolean
+            has_prev_page:
+              type: boolean
+      required:
+      - data
+      - pagination
+    ProfileEntryDTO:
+      type: object
+      description: Version 1 requires otlp-profiles-protobuf, schema version 1, and valid base64 protobuf containing
+        exactly one resource, scope and profile with a valid complete dictionary. Searchable summaries derive from the
+        payload. Timestamp is the signed-index fallback for zero or unsigned out-of-range source time. Version 0 retains
+        historical opaque bytes and caller summaries without asserting wire compatibility.
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        service_name:
+          type: string
+        service_namespace:
+          type: string
+        service_instance_id:
+          type: string
+        profile_type:
+          type: string
+          description: Arbitrary OTLP sample-type label, such as cpu or alloc_space.
+        duration_ns:
+          type: integer
+          format: int64
+          description: Legacy signed duration summary; zero for unsigned durations outside signed bigint.
+        sample_type:
+          type: string
+        sample_unit:
+          type: string
+        profile_bytes:
+          type: string
+          format: byte
+          description: Exact persisted protobuf or legacy bytes encoded as base64.
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Searchable summaries; non-finite doubles use OTLP JSON strings NaN, Infinity and -Infinity.
+        resource_attributes:
+          type: object
+          additionalProperties: true
+        resource_schema_url:
+          type: string
+        scope_name:
+          type: string
+        scope_version:
+          type: string
+        scope_attributes:
+          type: object
+          additionalProperties: true
+        scope_dropped_attr_count:
+          type: integer
+          format: int32
+          description: Legacy signed scope dropped count, omitted when uint32 exceeds signed int32.
+        scope_schema_url:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        profile_storage_version:
+          type: integer
+          enum:
+          - 0
+          - 1
+          default: 0
+        profile_encoding:
+          type: string
+          enum:
+          - legacy-unversioned
+          - otlp-profiles-protobuf
+        profile_schema_version:
+          type: string
+          enum:
+          - '1'
+          nullable: true
+      required:
+      - timestamp
+
+    ProfileEntryResponse:
+      type: object
+      properties:
+        profile_id:
+          type: integer
+          format: int64
+          description: Database row identifier, distinct from the source OTLP profile ID.
+        timestamp_ns:
+          type: integer
+          format: int64
+          description: Signed database query index; ingestion time when source time is zero or outside signed bigint.
+        timestamp:
+          type: string
+          format: date-time
+        service_name:
+          type: string
+        service_namespace:
+          type: string
+        service_instance_id:
+          type: string
+        profile_type:
+          type: string
+          description: Arbitrary OTLP sample-type label, such as cpu or alloc_space.
+        duration_ns:
+          type: integer
+          format: int64
+          description: Legacy signed duration summary; zero for unsigned durations outside signed bigint.
+        sample_type:
+          type: string
+        sample_unit:
+          type: string
+        profile_storage_version:
+          type: integer
+          format: int32
+          description: 0 for unversioned legacy storage; 1 for explicitly versioned current OTLP storage.
+        profile_encoding:
+          type: string
+          description: legacy-unversioned or otlp-profiles-protobuf.
+        profile_schema_version:
+          type: string
+          description: Compiled OTLP development wire metadata version for current rows, presently 1. Does not assert
+            historical wire compatibility.
+        otel_profile_id:
+          type: string
+          description: Source 16-byte profile identity in hexadecimal.
+        profile_time_unix_nano:
+          type: string
+          pattern: ^[0-9]+$
+          description: Exact unsigned source nanoseconds, including zero and values above signed bigint.
+        duration_nano:
+          type: string
+          pattern: ^[0-9]+$
+          description: Exact unsigned source duration in nanoseconds.
+        profile_bytes:
+          type: string
+          format: byte
+          description: Exact persisted protobuf or legacy bytes encoded as base64.
+        profile_data:
+          description: Complete OTLP JSON container and dictionary for decoded current rows. Historical JSON remains
+            legacy JSON; legacy binary is omitted.
+        profile_decode_status:
+          type: string
+          enum:
+          - decoded
+          - legacy-opaque
+          - legacy-json
+          - error
+        profile_decode_error:
+          type: string
+          description: Explicit failure for invalid or unsupported versioned storage; raw base64 bytes are still returned.
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Searchable summaries; non-finite doubles use OTLP JSON strings NaN, Infinity and -Infinity.
+        resource_attributes:
+          type: object
+          additionalProperties: true
+        resource_schema_url:
+          type: string
+        scope_name:
+          type: string
+        scope_version:
+          type: string
+        scope_attributes:
+          type: object
+          additionalProperties: true
+        scope_dropped_attr_count:
+          type: integer
+          format: int32
+          description: Legacy signed scope dropped count, omitted when uint32 exceeds signed int32.
+        scope_schema_url:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        dropped_attr_count:
+          type: integer
+          format: int32
+          description: Legacy signed profile dropped count, distinct from scope; omitted on signed overflow.
+        profile_dropped_attributes_count:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+        resource_dropped_attributes_count:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+        scope_dropped_attributes_count:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      required:
+      - profile_id
+      - timestamp_ns
+      - timestamp
+      - duration_ns
+      - profile_bytes
+      - profile_storage_version
+      - profile_encoding
+      - profile_decode_status
+
+    PasswordResetRequestRequest:
+      type: object
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          format: email
+    PasswordResetPerformRequest:
+      type: object
+      required:
+      - token
+      - new_password
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: Private one-time token from the delivered reset email URL fragment.
+        new_password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: At least 8 bytes; bcrypt accepts at most 72 bytes including any configured server pepper.
+
+    MetricQueryResult:
+      type: object
+      required:
+      - entries
+      - next_cursor
+      - has_more
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricEntryResponse'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+        prev_cursor:
+          type: string
+        has_prev:
+          type: boolean

@@ -1,0 +1,115 @@
+components:
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: './schemas.yaml#/components/schemas/Error'
+              - $ref: './schemas.yaml#/components/schemas/ValidationErrors'
+          examples:
+            sample:
+              value:
+                error: "Invalid request payload"
+                code: "bad_request"
+                details: { field: "Value", reason: "missing" }
+            validation_errors:
+              summary: Validation errors
+              value:
+                errors:
+                  - field: "start"
+                    message: "invalid start time format, expected RFC3339"
+                  - field: "limit"
+                    message: "limit cannot exceed 1000"
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: './schemas.yaml#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: "Missing or invalid token"
+                code: "unauthorized"
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: './schemas.yaml#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: "Insufficient permissions"
+                code: "forbidden"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: './schemas.yaml#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: "Resource not found"
+                code: "not_found"
+    PreconditionFailed:
+      description: Precondition failed (ETag mismatch)
+      headers:
+        ETag:
+          $ref: './headers.yaml#/components/headers/ETag'
+      content:
+        application/json:
+          schema:
+            $ref: './schemas.yaml#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: "ETag mismatch"
+                code: "precondition_failed"
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: './schemas.yaml#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: "Conflict"
+                code: "conflict"
+    InternalError:
+      description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: './schemas.yaml#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: "Unexpected server error"
+                code: "internal_error"
+    UnprocessableEntity:
+      description: Unprocessable entity
+      content:
+        application/json:
+          schema:
+            $ref: './schemas.yaml#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: "Unprocessable entity"
+                code: "unprocessable_entity"
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: './schemas.yaml#/components/schemas/Error'
+          examples:
+            sample:
+              value:
+                error: "Internal server error"
+                code: "internal_server_error"

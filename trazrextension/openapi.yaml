@@ -1,0 +1,3579 @@
+openapi: 3.0.3
+info:
+  title: Trazr Merged API
+  version: 1.0.0
+  description: |
+    Merged OpenAPI specification for both Insert and Query APIs for Trazr backend.
+    Includes endpoints for inserting and querying OpenTelemetry logs, traces, metrics, and profiles.
+
+    Scoping and Authorization:
+      - Requests may optionally include organization and project scope via headers `X-Org-ID` and `X-Project-ID` or query params `org_id` and `project_id`.
+      - When the caller's JWT contains `org_id` and/or `project_id`, the server enforces that request scope matches those claims.
+      - If headers are omitted but query params provided, the server may inject headers for downstream consistency.
+servers:
+  - url: http://localhost:18888
+tags:
+  - name: beta
+    description: '[BETA] Experimental endpoints for development use only.'
+paths:
+  # Query endpoints first
+  /api/v1/logs:
+    get:
+      summary: Query logs
+      description: Query logs with flexible filters and cursor-based pagination.
+      parameters:
+        - in: query
+          name: start
+          schema:
+            type: string
+            format: date-time
+          description: Start time (RFC3339). If omitted and `last` not provided, defaults to 1 hour ago.
+        - in: query
+          name: end
+          schema:
+            type: string
+            format: date-time
+          description: End time (RFC3339). Defaults to now if omitted.
+        - in: query
+          name: last
+          schema:
+            type: string
+            pattern: '^[0-9]+[smhd]$'
+            example: '1h'
+          description: Shorthand time window (e.g., 15m, 1h, 2d). Used if start/end omitted. Default last=1h.
+        - in: query
+          name: q
+          schema:
+            type: string
+          description: Text search over rendered message/body (case-insensitive). For JSON payloads, includes Body and decoded message fields.
+        - in: query
+          name: q_mode
+          schema:
+            type: string
+            enum: [simple, regex]
+            default: simple
+          description: Search mode. If regex, `q` is RE2.
+        - in: query
+          name: q_flags
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [i, m]
+          style: form
+          explode: true
+          description: Optional regex flags (i=case-insensitive, m=multi-line). Only used when q_mode=regex.
+        - in: query
+          name: service_in
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Repeat param for OR match across services.
+        - in: query
+          name: severity_min
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 24
+          description: Minimum severity_number (inclusive).
+        - in: query
+          name: severity_max
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 24
+          description: Maximum severity_number (inclusive).
+        - in: query
+          name: severity_group_in
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [TRACE, DEBUG, INFO, WARN, ERROR, FATAL]
+          style: form
+          explode: true
+          description: "Severity groups mapped on server: TRACE 1–4, DEBUG 5–8, INFO 9–12, WARN 13–16, ERROR 17–20, FATAL 21–24."
+        - in: query
+          name: severity_text_in
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Exact severity_text variants (case-insensitive).
+        - in: query
+          name: attr.eq
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties:
+              type: string
+          description: "Attribute equals. Example: attr.eq[env]=staging (repeat across keys for AND)."
+        - in: query
+          name: attr.in
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties:
+              type: string
+              description: 'Comma-separated values, e.g., v1,v2'
+          description: "Attribute IN list (OR within key). Example: attr.in[env]=dev,staging."
+        - in: query
+          name: attr.exists
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties:
+              type: boolean
+          description: "Attribute existence. Example: attr.exists[user_id]=true."
+        - in: query
+          name: res_attr.eq
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties:
+              type: string
+          description: Resource attribute equals (same semantics as attr.eq).
+        - in: query
+          name: res_attr.in
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties:
+              type: string
+              description: 'Comma-separated values'
+          description: Resource attribute IN (same semantics as attr.in).
+        - in: query
+          name: res_attr.exists
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties:
+              type: boolean
+          description: Resource attribute existence (same semantics as attr.exists).
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 100
+          description: Max results.
+        - in: query
+          name: cursor
+          schema:
+            type: string
+          description: Base64-encoded cursor for pagination.
+        - in: query
+          name: direction
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          description: Sort direction on timestamp for pagination and result ordering.
+        - in: query
+          name: count_only
+          schema:
+            type: boolean
+            default: false
+          description: When true, return only the count of matching log entries instead of the full result set. Pagination parameters are ignored. Not supported with q_mode=regex.
+        - in: query
+          name: schema
+          schema:
+            type: string
+          description: Postgres schema to use (default otel)
+        - $ref: '#/components/parameters/OrgIDHeader'
+        - $ref: '#/components/parameters/ProjectIDHeader'
+        - $ref: '#/components/parameters/OrgIDQuery'
+        - $ref: '#/components/parameters/ProjectIDQuery'
+      responses:
+        '200':
+          description: Log query result
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/LogQueryResult'
+                  - $ref: '#/components/schemas/CountResult'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Insert one or more log entries
+      description: Insert a single log entry or an array of log entries. Requires JWT Bearer authentication. Returns an array of inserted IDs.
+      parameters:
+        - in: query
+          name: schema
+          schema:
+            type: string
+          description: Postgres schema to use (default otel)
+        - $ref: '#/components/parameters/OrgIDHeader'
+        - $ref: '#/components/parameters/ProjectIDHeader'
+        - $ref: '#/components/parameters/OrgIDQuery'
+        - $ref: '#/components/parameters/ProjectIDQuery'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/LogEntry'
+                - type: array
+                  items:
+                    $ref: '#/components/schemas/LogEntry'
+            examples:
+              single:
+                value:
+                  Timestamp: "2024-07-10T12:00:00Z"
+                  ServiceName: "api"
+                  SeverityText: "INFO"
+                  Body: "User logged in"
+                  Attributes: { user_id: "123" }
+              batch:
+                value:
+                  - Timestamp: "2024-07-10T12:00:00Z"
+                    ServiceName: "api"
+                    SeverityText: "INFO"
+                    Body: "User logged in"
+                  - Timestamp: "2024-07-10T12:01:00Z"
+                    ServiceName: "api"
+                    SeverityText: "ERROR"
+                    Body: "Login failed"
+      responses:
+        '200':
+          description: Insert result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsertResult'
+              examples:
+                single:
+                  value:
+                    IDs: ["abc123"]
+                    Status: inserted
+                batch:
+                  value:
+                    IDs: ["abc123", "def456"]
+                    Status: inserted
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/spans:
+    get:
+      summary: Query spans
+      description: Query spans with flexible filters and pagination.
+  /api/v1/spans/{id}:
+    get:
+      summary: Get a single span by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Span ID (primary key)
+        - in: query
+          name: schema
+          schema:
+            type: string
+          description: Postgres schema to use (default otel)
+        - $ref: '#/components/parameters/OrgIDHeader'
+        - $ref: '#/components/parameters/ProjectIDHeader'
+        - $ref: '#/components/parameters/OrgIDQuery'
+        - $ref: '#/components/parameters/ProjectIDQuery'
+      responses:
+        '200':
+          description: Span entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceEntryResponse'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+        - in: query
+          name: start
+          schema:
+            type: string
+            format: date-time
+          description: "Start time (RFC3339, optional; default: 1 hour ago)"
+        - in: query
+          name: end
+          schema:
+            type: string
+            format: date-time
+          description: "End time (RFC3339, optional; default: now)"
+        - in: query
+          name: service
+          schema:
+            type: string
+          description: Filter by service name
+        - in: query
+          name: trace_id
+          schema:
+            type: string
+          description: Filter by trace ID
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 100
+          description: Max results
+        # Cursor-based pagination is not currently accepted by the handler for spans
+        - in: query
+          name: direction
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          description: Sort direction on timestamp for pagination and result ordering
+        - in: query
+          name: schema
+          schema:
+            type: string
+          description: Postgres schema to use (default otel)
+        - $ref: '#/components/parameters/OrgIDHeader'
+        - $ref: '#/components/parameters/ProjectIDHeader'
+        - $ref: '#/components/parameters/OrgIDQuery'
+        - $ref: '#/components/parameters/ProjectIDQuery'
+      responses:
+        '200':
+          description: Span query result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceQueryResult'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Insert one or more span entries
+      description: Insert a single span entry or an array of span entries. Requires JWT Bearer authentication. Returns an array of inserted IDs.
+      parameters:
+        - in: query
+          name: schema
+          schema:
+            type: string
+          description: Postgres schema to use (default otel)
+        - $ref: '#/components/parameters/OrgIDHeader'
+        - $ref: '#/components/parameters/ProjectIDHeader'
+        - $ref: '#/components/parameters/OrgIDQuery'
+        - $ref: '#/components/parameters/ProjectIDQuery'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/TraceEntry'
+                - type: array
+                  items:
+                    $ref: '#/components/schemas/TraceEntry'
+      responses:
+        '200':
+          description: Insert result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsertResult'
+              examples:
+                single:
+                  value:
+                    IDs: ["traceid1"]
+                    Status: inserted
+                batch:
+                  value:
+                    IDs: ["traceid1", "traceid2"]
+                    Status: inserted
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/metrics:
+    get:
+      summary: Query metrics
+      description: Query metrics from any supported OpenTelemetry metric table, with cursor-based pagination.
+      responses:
+        '200':
+          description: Metric points and pagination, or a count when count_only is enabled.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/MetricsResponse'
+                - type: object
+                  required:
+                  - count
+                  properties:
+                    count:
+                      type: integer
+                      format: int64
+  /api/v1/metrics/{id}:
+    get:
+      summary: Get a single metric by ID (auto-detects type)
+      deprecated: true
+      description: Probes metric tables in a fixed order. IDs may overlap; use the typed route to select the intended
+        table.
+  /api/v1/metrics/{type}/{id}:
+    get:
+      summary: Get a single metric by type and ID
+      parameters:
+      - in: query
+        name: type
+        schema:
+          type: string
+          enum:
+          - gauge
+          - sum
+          - histogram
+          - summary
+          - exponential_histogram
+        required: true
+        description: Metric type
+      - in: query
+        name: start
+        schema:
+          type: string
+          format: date-time
+        description: 'Start time (RFC3339, optional; default: 1 hour ago)'
+      - in: query
+        name: end
+        schema:
+          type: string
+          format: date-time
+        description: 'End time (RFC3339, optional; default: now)'
+      - in: query
+        name: service
+        schema:
+          type: string
+        description: Filter by service name
+      - in: query
+        name: metric
+        schema:
+          type: string
+        description: Filter by metric name
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          default: 100
+        description: Max results
+      - in: query
+        name: cursor
+        schema:
+          type: string
+        description: Base64-encoded cursor for pagination
+      - in: query
+        name: direction
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+          default: desc
+        description: Sort direction on timestamp for pagination and result ordering
+      - in: query
+        name: schema
+        schema:
+          type: string
+        description: Postgres schema to use (default otel)
+      - $ref: '#/components/parameters/OrgIDHeader'
+      - $ref: '#/components/parameters/ProjectIDHeader'
+      - $ref: '#/components/parameters/OrgIDQuery'
+      - $ref: '#/components/parameters/ProjectIDQuery'
+      responses:
+        '200':
+          description: Metric query result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricQueryResult'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Insert one or more metric entries
+      description: Insert a single metric entry or an array of metric entries. The type field is required. Requires
+        JWT Bearer authentication. Returns an array of inserted IDs.
+      parameters:
+      - in: query
+        name: schema
+        schema:
+          type: string
+        description: Postgres schema to use (default otel)
+      - $ref: '#/components/parameters/OrgIDHeader'
+      - $ref: '#/components/parameters/ProjectIDHeader'
+      - $ref: '#/components/parameters/OrgIDQuery'
+      - $ref: '#/components/parameters/ProjectIDQuery'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - $ref: '#/components/schemas/MetricEntry'
+              - type: array
+                items:
+                  $ref: '#/components/schemas/MetricEntry'
+            examples:
+              gauge:
+                value:
+                  Timestamp: '2024-07-10T12:00:00Z'
+                  ServiceName: api
+                  Name: cpu
+                  Type: gauge
+                  Value: 1.23
+              sum:
+                value:
+                  Timestamp: '2024-07-10T12:00:00Z'
+                  ServiceName: api
+                  Name: cpu_sum
+                  Type: sum
+                  Value: 2.34
+              histogram:
+                value:
+                  Timestamp: '2024-07-10T12:00:00Z'
+                  ServiceName: api
+                  Name: latency_hist
+                  Type: histogram
+                  Count: 1
+                  Sum: 10.0
+                  Buckets:
+                    bucket_counts:
+                    - 1
+                    - 2
+                    - 3
+                    explicit_bounds:
+                    - 0.1
+                    - 1
+                    - 10
+              summary:
+                value:
+                  Timestamp: '2024-07-10T12:00:00Z'
+                  ServiceName: api
+                  Name: response_summary
+                  Type: summary
+                  Count: 1
+                  Sum: 5.0
+                  Quantiles:
+                    '0.5': 2.5
+                    '0.9': 4.5
+              exponential_histogram:
+                value:
+                  Timestamp: '2024-07-10T12:00:00Z'
+                  ServiceName: api
+                  Name: exp_hist
+                  Type: exponential_histogram
+                  Count: 1
+                  Sum: 7.0
+                  Buckets:
+                    scale: 1
+                    zero_count: 0
+                    positive_offset: 0
+                    positive_bucket_counts:
+                    - 1
+                    - 2
+                    - 3
+                    negative_offset: 0
+                    negative_bucket_counts:
+                    - 0
+                    - 0
+                    - 0
+      responses:
+        '200':
+          description: Insert result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsertResult'
+              examples:
+                single:
+                  value:
+                    IDs:
+                    - metricid1
+                    Status: inserted
+                batch:
+                  value:
+                    IDs:
+                    - metricid1
+                    - metricid2
+                    Status: inserted
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/profiles:
+    get:
+      tags:
+      - Profiles
+      summary: Retrieve profiles with pagination
+      description: Requires bearer authentication and access to the requested schema. Versioned rows expose the complete
+        OTLP JSON dictionary and exact base64 bytes; historical binary remains opaque.
+      parameters:
+      - name: start
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: end
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: last
+        in: query
+        schema:
+          type: string
+      - name: cursor
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 100
+          minimum: 1
+      - name: direction
+        in: query
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+      - name: service
+        in: query
+        schema:
+          type: string
+      - name: profile_type
+        in: query
+        schema:
+          type: string
+      - &id001
+        name: schema
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Profiles retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfilesResponse'
+        '400':
+          description: Invalid query
+        '401':
+          description: Authentication required
+        '403':
+          description: Schema access denied
+        '422':
+          description: Invalid query parameters
+        '500':
+          description: Query failed
+    post:
+      tags:
+      - Profiles
+      summary: Insert one or more profile entries
+      description: Requires bearer authentication and schema access. Versioned payloads are validated before any write;
+        omitted version preserves legacy opaque input.
+      parameters:
+      - *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - $ref: '#/components/schemas/ProfileEntryDTO'
+              - type: array
+                items:
+                  $ref: '#/components/schemas/ProfileEntryDTO'
+                minItems: 1
+      responses:
+        '200':
+          description: Profiles inserted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ids:
+                    type: array
+                    items:
+                      type: integer
+                      format: int64
+                  status:
+                    type: string
+                    enum:
+                    - inserted
+                required:
+                - ids
+                - status
+        '400':
+          description: Invalid format, version, payload, or timestamp; no writes performed
+        '401':
+          description: Authentication required
+        '403':
+          description: Schema access denied
+        '500':
+          description: Insert failed
+  /api/v1/runs:
+    get:
+      summary: Query runs
+      description: Query runs with flexible filters and cursor-based pagination.
+  /api/v1/runs/{id}:
+    get:
+      summary: Get a single run by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: Run ID
+        - in: query
+          name: schema
+          schema:
+            type: string
+          description: Postgres schema to use (default otel)
+      responses:
+        '200':
+          description: Run entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunEntryResponse'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+        - in: query
+          name: start
+          schema:
+            type: string
+            format: date-time
+          description: "Start time (RFC3339, optional; default: 1 hour ago)"
+        - in: query
+          name: end
+          schema:
+            type: string
+            format: date-time
+          description: "End time (RFC3339, optional; default: now)"
+        - in: query
+          name: service
+          schema:
+            type: string
+          description: Filter by service name
+        - in: query
+          name: name
+          schema:
+            type: string
+          description: Filter by run name
+        - in: query
+          name: session_id
+          schema:
+            type: string
+          description: Filter by session ID
+        - in: query
+          name: run_type
+          schema:
+            type: integer
+          description: "Filter by run type (1: time based, 2: trace based)"
+        - in: query
+          name: active_only
+          schema:
+            type: boolean
+            default: false
+          description: Filter to only active (non-ended) runs
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 100
+          description: Max results
+        - in: query
+          name: cursor
+          schema:
+            type: string
+          description: Base64-encoded cursor for pagination
+        - in: query
+          name: schema
+          schema:
+            type: string
+          description: Postgres schema to use (default otel)
+        - $ref: '#/components/parameters/OrgIDHeader'
+        - $ref: '#/components/parameters/ProjectIDHeader'
+        - $ref: '#/components/parameters/OrgIDQuery'
+        - $ref: '#/components/parameters/ProjectIDQuery'
+      responses:
+        '200':
+          description: Run query result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunQueryResult'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Insert one or more run entries
+      description: Insert a single run entry or an array of run entries. Requires JWT Bearer authentication. Returns an array of inserted IDs.
+      parameters:
+        - in: query
+          name: schema
+          schema:
+            type: string
+          description: Postgres schema to use (default otel)
+        - $ref: '#/components/parameters/OrgIDHeader'
+        - $ref: '#/components/parameters/ProjectIDHeader'
+        - $ref: '#/components/parameters/OrgIDQuery'
+        - $ref: '#/components/parameters/ProjectIDQuery'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/RunEntry'
+                - type: array
+                  items:
+                    $ref: '#/components/schemas/RunEntry'
+            examples:
+              single:
+                value:
+                  ServiceName: "api"
+                  Name: "request-processing"
+                  StartTimestampNs: 1754501063000000000
+                  RunType: 1
+                  SessionID: "user-session-123"
+              batch:
+                value:
+                  - ServiceName: "api"
+                    Name: "request-processing"
+                    StartTimestampNs: 1754501063000000000
+                    RunType: 1
+                    SessionID: "user-session-123"
+                  - ServiceName: "api"
+                    Name: "data-processing"
+                    StartTimestampNs: 1754501064000000000
+                    RunType: 2
+                    SessionID: "user-session-123"
+      responses:
+        '200':
+          description: Insert result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsertResult'
+              examples:
+                single:
+                  value:
+                    IDs: ["123"]
+                    Status: inserted
+                batch:
+                  value:
+                    IDs: ["123", "124"]
+                    Status: inserted
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update run metadata
+      description: Update metadata for a specific run by ID. Requires JWT Bearer authentication.
+      parameters:
+        - in: query
+          name: schema
+          schema:
+            type: string
+          description: Postgres schema to use (default otel)
+        - $ref: '#/components/parameters/OrgIDHeader'
+        - $ref: '#/components/parameters/ProjectIDHeader'
+        - $ref: '#/components/parameters/OrgIDQuery'
+        - $ref: '#/components/parameters/ProjectIDQuery'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ID, Metadata]
+              properties:
+                ID:
+                  type: integer
+                  description: Run ID to update
+                Metadata:
+                  type: object
+                  additionalProperties: true
+                  description: Metadata to update
+            examples:
+              update_metadata:
+                value:
+                  ID: 123
+                  Metadata:
+                    SPAN_COUNT: 100
+                    LOG_COUNT: 50
+                    LOG_ERROR_COUNT: 2
+      responses:
+        '200':
+          description: Update successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  Status:
+                    type: string
+                    example: updated
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: End a run
+      description: End a run by setting its end timestamp. Requires JWT Bearer authentication.
+      parameters:
+        - in: query
+          name: schema
+          schema:
+            type: string
+          description: Postgres schema to use (default otel)
+        - $ref: '#/components/parameters/OrgIDHeader'
+        - $ref: '#/components/parameters/ProjectIDHeader'
+        - $ref: '#/components/parameters/OrgIDQuery'
+        - $ref: '#/components/parameters/ProjectIDQuery'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [Name, EndTimestampNs]
+              properties:
+                Name:
+                  type: string
+                  description: Name of the run to end
+                EndTimestampNs:
+                  type: integer
+                  description: End timestamp in nanoseconds
+            examples:
+              end_run:
+                value:
+                  Name: "request-processing"
+                  EndTimestampNs: 1754501163000000000
+      responses:
+        '200':
+          description: Run ended successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  Status:
+                    type: string
+                    example: ended
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  # Stream and vectorstore endpoints (from query)
+  /api/v1/logs/{id}:
+    get:
+      summary: Get a single log by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Log ID
+        - in: query
+          name: schema
+          schema:
+            type: string
+          description: Postgres schema to use (default otel)
+        - $ref: '#/components/parameters/OrgIDHeader'
+        - $ref: '#/components/parameters/ProjectIDHeader'
+        - $ref: '#/components/parameters/OrgIDQuery'
+        - $ref: '#/components/parameters/ProjectIDQuery'
+      responses:
+        '200':
+          description: Log entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogEntryResponse'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/stream/logs:
+    get:
+      summary: Stream new log entries (WebSocket)
+      description: |
+        Streams log entries in realtime. If `last` or `start` is provided, the server preloads the requested window respecting the direction parameter and then continues live.
+        If `cursor` is provided, preloads from cursor position maintaining all original query filters.
+        Accepts the same filters as GET /api/v1/logs via query string.
+        In-band filter update:
+          client → server: {"type":"set_filter","filter":{...}}
+          server → client: {"type":"ack"} or {"type":"error","message":"..."}
+        Client keepalive messages:
+          - The server accepts and silently ignores the following optional client messages:
+              {"type":"keepalive"}
+              {"type":"ping"}
+            These do not affect filters or state and are primarily for client-side keepalive semantics.
+        Backpressure:
+          server may emit {"type":"dropped","count":N} when messages are dropped.
+        Keepalive and ping/pong:
+          - Server auto-responds to pings and extends the read deadline on pong or ping (`ws_read_timeout`, default 120s).
+          - Optional server-initiated pings when `ws_ping_interval` > 0 (disabled by default). Useful for browsers and through proxies/NAT.
+          - Inbound message size limited by `ws_read_limit`; idle/read errors close the socket.
+      parameters:
+        - in: query
+          name: start
+          schema: { type: string, format: date-time }
+          description: Start time (RFC3339). If omitted and `last` not provided, defaults to 1 hour ago.
+        - in: query
+          name: end
+          schema: { type: string, format: date-time }
+          description: End time (RFC3339). Defaults to now if omitted.
+        - in: query
+          name: last
+          schema:
+            type: string
+            pattern: '^[0-9]+[smhd]$'
+            example: '1h'
+          description: Shorthand time window (e.g., 15m, 1h, 2d). Used if start/end omitted. Default last=1h.
+        - $ref: '#/components/parameters/StreamCursor'
+        - in: query
+          name: q
+          schema: { type: string }
+          description: Text search over rendered message/body (case-insensitive).
+        - in: query
+          name: q_mode
+          schema: { type: string, enum: [simple, regex], default: simple }
+          description: Search mode. If regex, `q` is RE2.
+        - in: query
+          name: q_flags
+          schema:
+            type: array
+            items: { type: string, enum: [i, m] }
+          style: form
+          explode: true
+          description: Optional regex flags (i=case-insensitive, m=multi-line). Only used when q_mode=regex.
+        - in: query
+          name: service_in
+          schema:
+            type: array
+            items: { type: string }
+          style: form
+          explode: true
+          description: Repeat param for OR match across services.
+        - in: query
+          name: severity_min
+          schema: { type: integer, minimum: 1, maximum: 24 }
+          description: Minimum severity_number (inclusive).
+        - in: query
+          name: severity_max
+          schema: { type: integer, minimum: 1, maximum: 24 }
+          description: Maximum severity_number (inclusive).
+        - in: query
+          name: severity_group_in
+          schema:
+            type: array
+            items: { type: string, enum: [TRACE, DEBUG, INFO, WARN, ERROR, FATAL] }
+          style: form
+          explode: true
+          description: "Severity groups mapped on server: TRACE 1–4, DEBUG 5–8, INFO 9–12, WARN 13–16, ERROR 17–20, FATAL 21–24."
+        - in: query
+          name: severity_text_in
+          schema:
+            type: array
+            items: { type: string }
+          style: form
+          explode: true
+          description: Exact severity_text variants (case-insensitive).
+        - in: query
+          name: attr.eq
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties: { type: string }
+          description: "Attribute equals. Example: attr.eq[env]=staging (repeat across keys for AND)."
+        - in: query
+          name: attr.in
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties: { type: string, description: 'Comma-separated values, e.g., v1,v2' }
+          description: "Attribute IN list (OR within key). Example: attr.in[env]=dev,staging."
+        - in: query
+          name: attr.exists
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties: { type: boolean }
+          description: "Attribute existence. Example: attr.exists[user_id]=true."
+        - in: query
+          name: res_attr.eq
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties: { type: string }
+          description: Resource attribute equals (same semantics as attr.eq).
+        - in: query
+          name: res_attr.in
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties: { type: string, description: 'Comma-separated values' }
+          description: Resource attribute IN (same semantics as attr.in).
+        - in: query
+          name: res_attr.exists
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties: { type: boolean }
+          description: Resource attribute existence (same semantics as attr.exists).
+        - in: query
+          name: schema
+          schema: { type: string }
+          description: Postgres schema to use (default otel).
+        - in: query
+          name: wait_for_established
+          schema: { type: boolean, default: false }
+          description: If true, connection waits until subscription is established before returning the first message.
+        - $ref: '#/components/parameters/OrgIDHeader'
+        - $ref: '#/components/parameters/ProjectIDHeader'
+        - $ref: '#/components/parameters/OrgIDQuery'
+        - $ref: '#/components/parameters/ProjectIDQuery'
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade)
+        '200':
+          description: Example stream message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogEntryResponse'
+  /api/v1/stream/spans:
+    get:
+      summary: Stream span entries (WebSocket)
+      description: |
+        Stream span entries in realtime. If `last` or `start` is provided, the server preloads the requested window respecting the direction parameter and then continues live.
+        If `cursor` is provided, preloads from cursor position maintaining all original query filters.
+        Accepts the same filters as GET /api/v1/spans via query string.
+        Keepalive and ping/pong:
+          - Server auto-responds to pings and extends the read deadline on pong or ping (`ws_read_timeout`, default 120s).
+          - Optional server-initiated pings when `ws_ping_interval` > 0 (disabled by default). Useful for browsers and through proxies/NAT.
+          - Inbound message size limited by `ws_read_limit`; idle/read errors close the socket.
+      parameters:
+        - in: query
+          name: start
+          schema: { type: string, format: date-time }
+          description: Start time (RFC3339). If omitted and `last` not provided, defaults to 1 hour ago.
+        - in: query
+          name: end
+          schema: { type: string, format: date-time }
+          description: End time (RFC3339). Defaults to now if omitted.
+        - in: query
+          name: last
+          schema:
+            type: string
+            pattern: '^[0-9]+[smhd]$'
+            example: '1h'
+          description: Shorthand time window (e.g., 15m, 1h, 2d). Used if start/end omitted. Default last=1h.
+        - in: query
+          name: service
+          schema: { type: string }
+          description: Filter by service name.
+        - in: query
+          name: trace_id
+          schema: { type: string }
+          description: Filter by trace ID.
+        - in: query
+          name: schema
+          schema: { type: string }
+          description: Postgres schema to use (default otel).
+        - in: query
+          name: wait_for_established
+          schema: { type: boolean, default: false }
+          description: If true, connection waits until subscription is established before returning the first message.
+        - $ref: '#/components/parameters/OrgIDHeader'
+        - $ref: '#/components/parameters/ProjectIDHeader'
+        - $ref: '#/components/parameters/OrgIDQuery'
+        - $ref: '#/components/parameters/ProjectIDQuery'
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade)
+        '200':
+          description: Example stream message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceEntryResponse'
+  /api/v1/stream/metrics:
+    get:
+      summary: Stream metric entries (WebSocket)
+      description: |
+        Stream metric entries in realtime. If `last` or `start` is provided, the server preloads the requested window respecting the direction parameter and then continues live.
+        If `cursor` is provided, preloads from cursor position maintaining all original query filters.
+        Accepts the same filters as GET /api/v1/metrics via query string.
+        Keepalive and ping/pong:
+          - Server auto-responds to pings and extends the read deadline on pong or ping (`ws_read_timeout`, default 120s).
+          - Optional server-initiated pings when `ws_ping_interval` > 0 (disabled by default). Useful for browsers and through proxies/NAT.
+          - Inbound message size limited by `ws_read_limit`; idle/read errors close the socket.
+      parameters:
+        - in: query
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [gauge, sum, histogram, summary, exponential_histogram]
+          description: Metric type
+        - in: query
+          name: start
+          schema: { type: string, format: date-time }
+          description: Start time (RFC3339). If omitted and `last` not provided, defaults to 1 hour ago.
+        - in: query
+          name: end
+          schema: { type: string, format: date-time }
+          description: End time (RFC3339). Defaults to now if omitted.
+        - in: query
+          name: last
+          schema:
+            type: string
+            pattern: '^[0-9]+[smhd]$'
+            example: '1h'
+          description: Shorthand time window (e.g., 15m, 1h, 2d). Used if start/end omitted. Default last=1h.
+        - $ref: '#/components/parameters/StreamCursor'
+        - in: query
+          name: service
+          schema: { type: string }
+          description: Filter by service name.
+        - in: query
+          name: metric
+          schema: { type: string }
+          description: Filter by metric name.
+        - in: query
+          name: schema
+          schema: { type: string }
+          description: Postgres schema to use (default otel).
+        - in: query
+          name: wait_for_established
+          schema: { type: boolean, default: false }
+          description: If true, connection waits until subscription is established before returning the first message.
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade)
+        '200':
+          description: Example stream message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricEntryResponse'
+  /api/v1/stream/runs:
+    get:
+      summary: Stream new run entries (WebSocket)
+      description: |
+        Streams run entries in realtime. If `last` or `start` is provided, the server preloads the requested window respecting the direction parameter and then continues live.
+        If `cursor` is provided, preloads from cursor position maintaining all original query filters.
+        Message types:
+          - {"type":"run_upsert","run": RunEntryResponse}
+          - {"type":"run_ended","run": RunEntryResponse}
+          - {"type":"ready"} after preload completes
+          - {"type":"dropped","count":N} for backpressure
+        Keepalive and ping/pong:
+          - Server auto-responds to pings and extends the read deadline on pong or ping (`ws_read_timeout`, default 120s).
+          - Optional server-initiated pings when `ws_ping_interval` > 0 (disabled by default). Useful for browsers and through proxies/NAT.
+          - Inbound message size limited by `ws_read_limit`; idle/read errors close the socket.
+      parameters:
+        - in: query
+          name: start
+          schema: { type: string, format: date-time }
+          description: Start time (RFC3339). If omitted and `last` not provided, defaults to 1 hour ago.
+        - in: query
+          name: end
+          schema: { type: string, format: date-time }
+          description: End time (RFC3339). Defaults to now if omitted.
+        - in: query
+          name: last
+          schema:
+            type: string
+            pattern: '^[0-9]+[smhd]$'
+            example: '1h'
+          description: Shorthand time window (e.g., 15m, 1h, 2d). Used if start/end omitted. Default last=1h.
+        - $ref: '#/components/parameters/StreamCursor'
+        - in: query
+          name: service
+          schema: { type: string }
+          description: Filter by service name.
+        - in: query
+          name: name
+          schema: { type: string }
+          description: Filter by run name.
+        - in: query
+          name: session_id
+          schema: { type: string }
+          description: Filter by session ID.
+        - in: query
+          name: run_type
+          schema: { type: integer }
+          description: "Filter by run type (1: time based, 2: trace based)."
+        - in: query
+          name: active_only
+          schema: { type: boolean, default: false }
+          description: If true, only streams active (non-ended) runs.
+        - in: query
+          name: wait_for_established
+          schema: { type: boolean, default: false }
+          description: If true, connection waits until subscription is established before returning the first message.
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade)
+        '200':
+          description: Example stream messages
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/WSRunUpsert'
+                  - $ref: '#/components/schemas/WSRunEnded'
+                  - $ref: '#/components/schemas/WSReady'
+                  - $ref: '#/components/schemas/WSDropped'
+  /api/v1/stream/perfmonitor:
+    get:
+      summary: Stream performance monitor metrics (WebSocket)
+      description: |
+        Streams periodic performance and health metrics (memory, storage, database, HTTP, notifier, embedding, template, event_bus).
+        Supports initial preload snapshot and configurable update interval.
+        Keepalive and ping/pong:
+          - Server auto-responds to pings (PongHandler) and extends the read deadline on pong (`ws_read_timeout`, default 90s).
+          - Optional server-initiated pings when `ws_ping_interval` > 0 (disabled by default). Useful for browsers and through proxies/NAT.
+          - Inbound message size limited by `ws_read_limit`; idle/read errors close the socket.
+      parameters:
+        - in: query
+          name: preload
+          schema: { type: boolean, default: true }
+          description: If true, sends an initial snapshot before live updates.
+        - in: query
+          name: wait_for_established
+          schema: { type: boolean, default: false }
+          description: If true, connection waits until subscription is established before returning the first message.
+        - in: query
+          name: interval
+          schema: { type: integer, default: 2 }
+          description: Update interval in seconds.
+        - in: query
+          name: summary
+          schema: { type: boolean, default: false }
+          description: If true, streams a compact summary instead of full metrics.
+        - in: query
+          name: fields
+          schema: { type: string }
+          description: Optional comma-separated whitelist of top-level fields (e.g., memory,storage,http).
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade)
+        '200':
+          description: Example stream message
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [perf_update, ready, dropped, error]
+                  metrics:
+                    type: object
+  /api/v1/stream/user/notifications:
+    get:
+      summary: Stream user notifications (WebSocket)
+      description: |
+        Streams user-targeted notifications in realtime.
+        Message types:
+          - {"type":"notification","topic":"...","data":{...},"ts":"RFC3339","id":"...","meta":{...},"seq":123}
+          - {"type":"ready"} after any optional preload completes
+          - {"type":"dropped","count":N} when messages are dropped due to backpressure
+        In-band control:
+          client → server: {"type":"set_filter","filter":{"topics":["mcp","alerts"]}}
+          server → client: {"type":"ack"} or {"type":"error","message":"..."}
+        Keepalive and ping/pong:
+          - Server auto-responds to pings and extends the read deadline on pong or ping (`ws_read_timeout`).
+          - Optional server-initiated pings when configured.
+      parameters:
+        - in: query
+          name: topics
+          schema:
+            type: array
+            items: { type: string }
+          style: form
+          explode: true
+          description: Optional list of topics to include (e.g., mcp,alerts,system). If omitted, all topics are streamed.
+        - in: query
+          name: wait_for_established
+          schema: { type: boolean, default: false }
+          description: If true, connection waits until subscription is established before returning the first message.
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade)
+        '200':
+          description: Example stream messages
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/WSNotification'
+                  - $ref: '#/components/schemas/WSReady'
+                  - $ref: '#/components/schemas/WSDropped'
+  # Config management endpoints (user/org/project)
+  /api/v1/user/configs:
+    get:
+      summary: List user configs
+      description: List config keys for the authenticated user with optional prefix filter and cursor-based pagination.
+      parameters:
+        - in: query
+          name: prefix
+          schema: { type: string }
+          description: Optional key prefix filter (e.g., "mcp/").
+        - in: query
+          name: limit
+          schema: { type: integer, default: 100 }
+          description: Max results.
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: Base64-encoded cursor for pagination.
+        - in: query
+          name: direction
+          schema: { type: string, enum: [asc, desc], default: asc }
+          description: Sort direction on key for pagination and result ordering.
+      responses:
+        '200':
+          description: List of user config entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigListResult'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/user/configs/{key}:
+    get:
+      summary: Get a user config by key
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Config entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigEntryResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    put:
+      summary: Upsert a user config (replace)
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigUpsertRequest'
+      responses:
+        '200':
+          description: Upserted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigEntryResponse' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigEntryResponse' }
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412':
+          description: Precondition failed (ETag mismatch)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    patch:
+      summary: Update a user config (deep-merge objects)
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigPatchRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigEntryResponse' }
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412':
+          description: Precondition failed (ETag mismatch)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      summary: Delete a user config
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+  /api/v1/orgs/{org_id}/configs:
+    get:
+      summary: List org configs
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: prefix
+          schema: { type: string }
+          description: Optional key prefix filter.
+        - in: query
+          name: limit
+          schema: { type: integer, default: 100 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: Base64-encoded cursor for pagination.
+        - in: query
+          name: direction
+          schema: { type: string, enum: [asc, desc], default: asc }
+      responses:
+        '200':
+          description: List of org config entries
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigListResult' }
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+  /api/v1/orgs/{org_id}/configs/{key}:
+    get:
+      summary: Get an org config by key
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Config entry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigEntryResponse' }
+        '401': { description: Unauthorized }
+        '403': { description: Forbidden }
+        '404': { description: Not found }
+    put:
+      summary: Upsert an org config (replace)
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfigUpsertRequest' }
+      responses:
+        '200':
+          description: Upserted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigEntryResponse' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigEntryResponse' }
+        '401': { description: Unauthorized }
+        '403': { description: Forbidden }
+        '412': { description: Precondition failed (ETag mismatch) }
+    patch:
+      summary: Update an org config (deep-merge objects)
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfigPatchRequest' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigEntryResponse' }
+        '401': { description: Unauthorized }
+        '403': { description: Forbidden }
+        '404': { description: Not found }
+        '412': { description: Precondition failed (ETag mismatch) }
+    delete:
+      summary: Delete an org config
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+        '401': { description: Unauthorized }
+        '403': { description: Forbidden }
+        '404': { description: Not found }
+  /api/v1/orgs/{org_id}/projects/{project_id}/configs:
+    get:
+      summary: List project configs
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: prefix
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 100 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: Base64-encoded cursor for pagination.
+        - in: query
+          name: direction
+          schema: { type: string, enum: [asc, desc], default: asc }
+      responses:
+        '200':
+          description: List of project config entries
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigListResult' }
+        '401': { description: Unauthorized }
+        '403': { description: Forbidden }
+  /api/v1/orgs/{org_id}/projects/{project_id}/configs/{key}:
+    get:
+      summary: Get a project config by key
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Config entry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigEntryResponse' }
+        '401': { description: Unauthorized }
+        '403': { description: Forbidden }
+        '404': { description: Not found }
+    put:
+      summary: Upsert a project config (replace)
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfigUpsertRequest' }
+      responses:
+        '200':
+          description: Upserted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigEntryResponse' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigEntryResponse' }
+        '401': { description: Unauthorized }
+        '403': { description: Forbidden }
+        '412': { description: Precondition failed (ETag mismatch) }
+    patch:
+      summary: Update a project config (deep-merge objects)
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfigPatchRequest' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigEntryResponse' }
+        '401': { description: Unauthorized }
+        '403': { description: Forbidden }
+        '404': { description: Not found }
+        '412': { description: Precondition failed (ETag mismatch) }
+    delete:
+      summary: Delete a project config
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+        '401': { description: Unauthorized }
+        '403': { description: Forbidden }
+        '404': { description: Not found }
+  /api/v1/user/notifications:
+    post:
+      summary: Enqueue a user notification (trusted services only)
+      description: |
+        Allows trusted services to enqueue a notification for a specific user.
+        If the user has an active notification stream, the message is delivered immediately. Otherwise it is stored until retention expiry.
+      parameters:
+        - $ref: '#/components/parameters/UserKeyHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationEnqueueRequest' }
+      responses:
+        '200':
+          description: Enqueued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationEnqueueResponse' }
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { description: Unauthorized }
+        '403': { description: Forbidden }
+        '409': { description: Duplicate idempotency key }
+        '500': { description: Internal error }
+  /api/v1/vectorstore/search:
+    post:
+      summary: VectorStore semantic search
+      description: >
+        Perform a semantic vector search over the specified vector store. Returns the top-k most similar documents, filtered by an optional score threshold (lower is more similar; default 0.3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  description: Semantic search query string
+                top_k:
+                  type: integer
+                  description: "Number of top results to return (default: 5)"
+                store_id:
+                  type: string
+                  description: Vector store identifier (default otel)
+                score_threshold:
+                  type: number
+                  format: float
+                  description: >
+                    Optional. Only results with similarity score < threshold are returned. Lower is more similar. Default: 0.3.
+              required:
+                - query
+      responses:
+        '200':
+          description: Vector search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        content:
+                          type: string
+                        score:
+                          type: number
+                        timestamp:
+                          type: string
+                          format: date-time
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/schemas:
+    get:
+      summary: Get available schemas
+      description: Returns a list of all available database schemas with their configuration and status. Requires JWT Bearer authentication.
+      responses:
+        '200':
+          description: List of available schemas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaList'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/health:
+    get:
+      summary: Health check
+      description: Returns 200 if the service is healthy.
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/version:
+    get:
+      summary: Get API version
+      description: Returns the current API version.
+      responses:
+        '200':
+          description: Version info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    example: 1.0.0
+  # Authentication endpoints
+  /api/v1/auth/register:
+    post:
+      summary: Register a new user
+      description: Create a user account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRegisterRequest'
+      responses:
+        '200':
+          description: Registration result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/auth/login:
+    post:
+      summary: Login and obtain JWT
+      description: Authenticate with email and password and receive a short-lived JWT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLoginRequest'
+      responses:
+        '200':
+          description: JWT issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/auth/request-password-reset:
+    post:
+      tags:
+      - Authentication
+      summary: Request private password reset email
+      security: []
+      description: Uses a bounded asynchronous private SMTP queue and a fixed frontend reset URL with token only in its browser fragment. Valid requests receive the
+        same generic response for known or missing accounts and delivery/storage failures. Tokens are never returned
+        or logged. No token/account lookup occurs when secure delivery is disabled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequestRequest'
+      responses:
+        '200':
+          description: Generic accepted response independent of account existence or delivery outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - status
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - if the account exists, a password reset email will be sent
+        '400':
+          description: Invalid email or request
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - error
+                properties:
+                  error:
+                    type: string
+        '503':
+          description: Secure private SMTP delivery or frontend reset URL is unconfigured or invalid; no token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - error
+                properties:
+                  error:
+                    type: string
+  /api/v1/auth/reset-password:
+    post:
+      tags:
+      - Authentication
+      summary: Consume one-time token and reset password
+      security: []
+      description: Reset tokens expire after one hour. Password update and token consumption commit atomically. Concurrent
+        replay, reuse and expired tokens are rejected; a failed password update does not consume the token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetPerformRequest'
+      responses:
+        '200':
+          description: Password reset completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - status
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - password reset successful
+        '400':
+          description: Invalid input, expired token or token replay
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - error
+                properties:
+                  error:
+                    type: string
+        '500':
+          description: Password reset could not complete
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - error
+                properties:
+                  error:
+                    type: string
+  /api/v1/auth/whoami:
+    get:
+      summary: Get current user info
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WhoAmIResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/auth/renew:
+    post:
+      summary: Renew JWT
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: JWT renewed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # API key endpoints
+  /api/v1/auth/apikeys:
+    get:
+      summary: List API keys for current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Create a new API key
+      description: Creates a long-lived user-scoped API key. The plaintext key is returned only once.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/APIKeyCreateRequest'
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyCreateResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/auth/apikeys/{id}:
+    delete:
+      summary: Revoke an API key by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Revoked
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+  /api/v1/auth/apikeys/exchange:
+    post:
+      summary: Exchange API key for short-lived JWT
+      description: |
+        Requires `X-API-Key` header. Returns a short-lived JWT for use as a Bearer token.
+        If the API key is scoped to an organization and/or project, the issued JWT will include `org_id` and/or `project_id` claims.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: JWT issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  parameters:
+    OrgIDHeader:
+      in: header
+      name: X-Org-ID
+      required: false
+      schema:
+        type: string
+      description: Optional organization scope. Must match JWT org_id if present.
+    ProjectIDHeader:
+      in: header
+      name: X-Project-ID
+      required: false
+      schema:
+        type: string
+      description: Optional project scope. Must match JWT project_id if present.
+    OrgIDQuery:
+      in: query
+      name: org_id
+      required: false
+      schema:
+        type: string
+      description: Optional organization scope. Must match JWT org_id if present. If provided and headers missing, server may inject X-Org-ID.
+    ProjectIDQuery:
+      in: query
+      name: project_id
+      required: false
+      schema:
+        type: string
+      description: Optional project scope. Must match JWT project_id if present. If provided and headers missing, server may inject X-Project-ID.
+    UserKeyHeader:
+      in: header
+      name: X-User-Key
+      required: false
+      schema:
+        type: string
+      description: Optional user key override for trusted service-to-service calls targeting a specific end user.
+    IdempotencyKeyHeader:
+      in: header
+      name: Idempotency-Key
+      required: false
+      schema:
+        type: string
+      description: Optional idempotency key. Duplicate requests with the same key return the original result.
+    IfMatchHeader:
+      in: header
+      name: If-Match
+      required: false
+      schema:
+        type: string
+      description: Optional ETag for conditional updates. When provided and mismatched, server returns 412.
+  schemas:
+    # Auth schemas
+    AuthRegisterRequest:
+      type: object
+      description: Username-based registration. Email is optional profile info; username is the primary login identifier (may itself be an email-like string).
+      required: [Username, Password]
+      properties:
+        Username:
+          type: string
+          description: Primary login identifier. Must be unique (case-insensitive). Can be an email string if desired.
+        Password:
+          type: string
+          format: password
+        Email:
+          type: string
+          format: email
+          description: Optional profile email; not required for login.
+        Role:
+          type: string
+          description: Optional role for the user (admin-only when enabled server-side)
+    AuthLoginRequest:
+      type: object
+      description: Username-based login. Provide username and password. For backward compatibility, servers may accept an email string in the username field.
+      required: [Username, Password]
+      properties:
+        Username:
+          type: string
+          description: Primary login identifier (case-insensitive). Can be an email string.
+        Password:
+          type: string
+          format: password
+    WhoAmIResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+    TokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+      description: A JWT Bearer token. When issued via API key exchange, it may include org_id/project_id claims (see JWTClaims).
+    JWTClaims:
+      type: object
+      description: Representative structure of claims included in issued tokens.
+      properties:
+        sub:
+          type: string
+        email:
+          type: string
+        user_id:
+          type: string
+        org_id:
+          type: string
+          description: Present when the token is scoped to an organization
+        project_id:
+          type: string
+          description: Present when the token is scoped to a project
+        scopes:
+          type: array
+          items:
+            type: string
+        iss:
+          type: string
+        aud:
+          type: array
+          items:
+            type: string
+        exp:
+          type: integer
+        iat:
+          type: integer
+        nbf:
+          type: integer
+        jti:
+          type: string
+    PasswordResetRequestRequest:
+      type: object
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          format: email
+    PasswordResetPerformRequest:
+      type: object
+      required:
+      - token
+      - new_password
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: Private one-time token from the delivered reset email URL fragment.
+        new_password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: At least 8 bytes; bcrypt accepts at most 72 bytes including any configured server pepper.
+    APIKey:
+      type: object
+      properties:
+        ID:
+          type: string
+        Name:
+          type: string
+        Prefix:
+          type: string
+        Scopes:
+          type: array
+          items:
+            type: string
+        OrgID:
+          type: string
+          nullable: true
+          description: Optional organization scope for this key
+        ProjectID:
+          type: string
+          nullable: true
+          description: Optional project scope for this key
+        ExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        CreatedAt:
+          type: string
+          format: date-time
+        LastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+    APIKeyCreateRequest:
+      type: object
+      required: [Name]
+      properties:
+        Name:
+          type: string
+        Scopes:
+          type: array
+          items:
+            type: string
+        OrgID:
+          type: string
+          description: Optional organization to scope the key to
+        ProjectID:
+          type: string
+          description: Optional project to scope the key to
+        ExpiresIn:
+          type: string
+          description: Optional duration like 30d, 90d. If omitted, key does not expire.
+    APIKeyCreateResponse:
+      type: object
+      properties:
+        Key:
+          type: string
+          description: Plaintext API key, returned only once. Store it securely.
+        APIKey:
+          $ref: '#/components/schemas/APIKey'
+    APIKeyListResponse:
+      type: object
+      properties:
+        Keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/APIKey'
+    # Insert schemas
+    LogEntry:
+      type: object
+      required: [Timestamp, ServiceName, Body]
+      properties:
+        Timestamp:
+          type: string
+          format: date-time
+        ServiceName:
+          type: string
+        SeverityText:
+          type: string
+        SeverityNumber:
+          type: integer
+        Body:
+          type: string
+        Attributes:
+          type: object
+          additionalProperties: true
+        TraceID:
+          type: string
+        SpanID:
+          type: string
+        Flags:
+          type: integer
+        ResourceAttributes:
+          type: object
+          additionalProperties: true
+        Metadata:
+          type: object
+          additionalProperties: true
+
+      # Config schemas
+      ConfigEntryResponse:
+        type: object
+        properties:
+          Key:
+            type: string
+          Value:
+            type: object
+            additionalProperties: true
+          ETag:
+            type: string
+          CreatedAt:
+            type: string
+            format: date-time
+          UpdatedAt:
+            type: string
+            format: date-time
+      ConfigUpsertRequest:
+        type: object
+        properties:
+          Value:
+            type: object
+            additionalProperties: true
+        required: [Value]
+      ConfigPatchRequest:
+        type: object
+        description: JSON object to deep-merge into existing Value. Object fields are merged; arrays are replaced.
+        additionalProperties: true
+      ConfigListResult:
+        type: object
+        properties:
+          Entries:
+            type: array
+            items:
+              type: object
+              properties:
+                Key:
+                  type: string
+                UpdatedAt:
+                  type: string
+                  format: date-time
+          NextCursor:
+            type: string
+          HasMore:
+            type: boolean
+
+      # Notification schemas
+      NotificationEnqueueRequest:
+        type: object
+        required: [topic, data]
+        properties:
+          topic:
+            type: string
+            description: Notification topic (e.g., mcp, alerts, system)
+          data:
+            type: object
+            additionalProperties: true
+          ttl_seconds:
+            type: integer
+            description: Optional retention in seconds (default 1209600 = 14 days)
+          meta:
+            type: object
+            additionalProperties: true
+      NotificationEnqueueResponse:
+        type: object
+        properties:
+          id:
+            type: string
+          status:
+            type: string
+            example: queued
+          expires_at:
+            type: string
+            format: date-time
+      WSNotification:
+        type: object
+        required: [type, topic, data, ts, id]
+        properties:
+          type:
+            type: string
+            enum: [notification]
+          topic:
+            type: string
+          data:
+            type: object
+            additionalProperties: true
+          ts:
+            type: string
+            format: date-time
+          id:
+            type: string
+          meta:
+            type: object
+            additionalProperties: true
+          seq:
+            type: integer
+      # WS control schemas (WSReady, WSDropped) are defined below in the WebSocket control section.
+      TraceEntry:
+        type: object
+        required: [Timestamp, TraceID, SpanID, Name, ServiceName]
+        properties:
+          Timestamp:
+          type: string
+          format: date-time
+        TraceID:
+          type: string
+        SpanID:
+          type: string
+        ParentSpanID:
+          type: string
+        Name:
+          type: string
+        SpanKind:
+          type: string
+        ServiceName:
+          type: string
+        ResourceAttributes:
+          type: object
+          additionalProperties: true
+        Attributes:
+          type: object
+          additionalProperties: true
+        Events:
+          type: array
+          items:
+            type: object
+        StatusCode:
+          type: integer
+        StatusMessage:
+          type: string
+        StartTime:
+          type: string
+          format: date-time
+        EndTime:
+          type: string
+          format: date-time
+        Metadata:
+          type: object
+          additionalProperties: true
+    MetricEntry:
+      type: object
+      required: [Timestamp, ServiceName, Name, Type]
+      properties:
+        Timestamp:
+          type: string
+          format: date-time
+        ServiceName:
+          type: string
+        Name:
+          type: string
+        Type:
+          type: string
+          enum: [gauge, sum, histogram, summary, exponential_histogram]
+        Value:
+          type: number
+        Count:
+          type: integer
+        Sum:
+          type: number
+        Buckets:
+          oneOf:
+            - type: object
+              properties:
+                bucket_counts:
+                  type: array
+                  items:
+                    type: integer
+                explicit_bounds:
+                  type: array
+                  items:
+                    type: number
+            - type: object
+              properties:
+                scale:
+                  type: integer
+                zero_count:
+                  type: integer
+                positive_offset:
+                  type: integer
+                positive_bucket_counts:
+                  type: array
+                  items:
+                    type: integer
+                negative_offset:
+                  type: integer
+                negative_bucket_counts:
+                  type: array
+                  items:
+                    type: integer
+        Quantiles:
+          type: object
+          additionalProperties: true
+        Attributes:
+          type: object
+          additionalProperties: true
+        ResourceAttributes:
+          type: object
+          additionalProperties: true
+        Metadata:
+          type: object
+          additionalProperties: true
+    ProfileEntry:
+      $ref: '#/components/schemas/ProfileEntryDTO'
+    RunEntry:
+      type: object
+      required: [ServiceName, Name, StartTimestampNs]
+      properties:
+        ServiceName:
+          type: string
+          description: Service name
+        ScopeName:
+          type: string
+          description: Scope name (optional)
+        Name:
+          type: string
+          description: Run name
+        StartTimestampNs:
+          type: integer
+          description: Start timestamp in nanoseconds
+        EndTimestampNs:
+          type: integer
+          description: End timestamp in nanoseconds (optional)
+        TraceID:
+          type: string
+          description: Associated trace ID (optional)
+        ProcessorID:
+          type: integer
+          description: Processor ID (optional)
+        RunType:
+          type: integer
+          description: "Run type (1: time based, 2: trace based)"
+        SessionID:
+          type: string
+          description: Session ID for grouping runs (optional)
+        Metadata:
+          type: object
+          additionalProperties: true
+          description: Run metadata (optional)
+    InsertResult:
+      type: object
+      properties:
+        IDs:
+          type: array
+          items:
+            type: string
+          description: List of inserted record IDs (always an array, even for single inserts)
+        Status:
+          type: string
+          example: inserted
+    # Query schemas (from query.yaml)
+    LogQueryResult:
+      type: object
+      properties:
+        Entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEntryResponse'
+        NextCursor:
+          type: string
+        HasMore:
+          type: boolean
+    CountResult:
+      type: object
+      properties:
+        count:
+          type: integer
+          format: int64
+          example: 1234
+      required:
+        - count
+    LogEntryResponse:
+      type: object
+      properties:
+        ID:
+          type: string
+        TimestampNS:
+          type: integer
+        Timestamp:
+          type: string
+          format: date-time
+        ObservedTimestamp:
+          type: string
+          format: date-time
+        TraceID:
+          type: string
+        SpanID:
+          type: string
+        Flags:
+          type: integer
+        SeverityText:
+          type: string
+        SeverityNumber:
+          type: integer
+        ServiceName:
+          type: string
+        ResourceAttributes:
+          type: object
+        ResourceSchemaURL:
+          type: string
+        ScopeName:
+          type: string
+        ScopeVersion:
+          type: string
+        ScopeAttributes:
+          type: object
+        ScopeDroppedAttrCount:
+          type: integer
+        ScopeSchemaURL:
+          type: string
+        Attributes:
+          type: object
+        DroppedAttrCount:
+          type: integer
+        Body:
+          type: string
+        Metadata:
+          type: object
+    TraceQueryResult:
+      type: object
+      properties:
+        Entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/TraceEntryResponse'
+        NextCursor:
+          type: string
+        HasMore:
+          type: boolean
+    TraceEntryResponse:
+      type: object
+      properties:
+        ID:
+          type: string
+        TimestampNS:
+          type: integer
+        Timestamp:
+          type: string
+          format: date-time
+        TraceID:
+          type: string
+        SpanID:
+          type: string
+        ParentSpanID:
+          type: string
+        TraceState:
+          type: string
+        Name:
+          type: string
+        SpanKind:
+          type: string
+        ServiceName:
+          type: string
+        ResourceAttributes:
+          type: object
+        ScopeName:
+          type: string
+        ScopeVersion:
+          type: string
+        ScopeAttributes:
+          type: object
+        ScopeDroppedAttrCount:
+          type: integer
+        Attributes:
+          type: object
+        DroppedAttrCount:
+          type: integer
+        Events:
+          type: array
+          items:
+            type: object
+        DroppedEventsCount:
+          type: integer
+        Links:
+          type: array
+          items:
+            type: object
+        DroppedLinksCount:
+          type: integer
+        StatusCode:
+          type: integer
+        StatusMessage:
+          type: string
+        StartTime:
+          type: string
+          format: date-time
+        EndTime:
+          type: string
+          format: date-time
+        DurationNS:
+          type: integer
+        Metadata:
+          type: object
+    MetricQueryResult:
+      type: object
+      required:
+      - entries
+      - next_cursor
+      - has_more
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricEntryResponse'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+        prev_cursor:
+          type: string
+        has_prev:
+          type: boolean
+    MetricEntryResponse:
+      type: object
+      description: A metric point. Fields depend on its type; absent optional values are omitted, while present zero
+        values are retained. IDs are unique within a metric table, so typed ID routes disambiguate overlapping IDs.
+      required:
+      - id
+      - timestamp_ns
+      - timestamp
+      - service_name
+      - name
+      properties:
+        id:
+          type: integer
+          format: int64
+        timestamp_ns:
+          type: integer
+          format: int64
+        timestamp:
+          type: string
+          format: date-time
+        service_name:
+          type: string
+        service_namespace:
+          type: string
+        service_instance_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        unit:
+          type: string
+        scope_name:
+          type: string
+        scope_version:
+          type: string
+        resource_schema_url:
+          type: string
+        scope_schema_url:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        value:
+          type: number
+        sum:
+          type: number
+        min:
+          type: number
+        max:
+          type: number
+        zero_threshold:
+          type: number
+        count:
+          type: integer
+          format: int64
+        zero_count:
+          type: integer
+          format: int64
+        flags:
+          type: integer
+          format: int32
+        scope_dropped_attr_count:
+          type: integer
+          format: int32
+        aggregation_temporality:
+          type: integer
+          format: int32
+        scale:
+          type: integer
+          format: int32
+        positive_offset:
+          type: integer
+          format: int32
+        negative_offset:
+          type: integer
+          format: int32
+        is_monotonic:
+          type: boolean
+        attributes:
+          type: object
+          additionalProperties: true
+        resource_attributes:
+          type: object
+          additionalProperties: true
+        scope_attributes:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+        buckets:
+          description: Histogram distribution, including bucket_counts and explicit_bounds for OTLP records.
+        quantiles:
+          type: array
+          items:
+            type: object
+            properties:
+              quantile:
+                type: number
+              value:
+                type: number
+        exemplars:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        positive_bucket_counts:
+          type: array
+          items:
+            type: integer
+            format: int64
+        negative_bucket_counts:
+          type: array
+          items:
+            type: integer
+            format: int64
+      example:
+        id: 1
+        timestamp_ns: 1791979200000000000
+        timestamp: '2026-10-14T12:00:00Z'
+        service_name: api-gateway
+        name: http_requests_total
+        value: 0
+        aggregation_temporality: 2
+        is_monotonic: true
+    ProfileQueryResult:
+      $ref: '#/components/schemas/ProfilesResponse'
+    ProfilesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfileEntryResponse'
+        pagination:
+          type: object
+          properties:
+            next_cursor:
+              type: string
+            prev_cursor:
+              type: string
+            has_next_page:
+              type: boolean
+            has_prev_page:
+              type: boolean
+      required:
+      - data
+      - pagination
+
+    ProfileEntryDTO:
+      type: object
+      description: Version 1 requires otlp-profiles-protobuf, schema version 1, and valid base64 protobuf containing
+        exactly one resource, scope and profile with a valid complete dictionary. Searchable summaries derive from the
+        payload. Timestamp is the signed-index fallback for zero or unsigned out-of-range source time. Version 0 retains
+        historical opaque bytes and caller summaries without asserting wire compatibility.
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        service_name:
+          type: string
+        service_namespace:
+          type: string
+        service_instance_id:
+          type: string
+        profile_type:
+          type: string
+          description: Arbitrary OTLP sample-type label, such as cpu or alloc_space.
+        duration_ns:
+          type: integer
+          format: int64
+          description: Legacy signed duration summary; zero for unsigned durations outside signed bigint.
+        sample_type:
+          type: string
+        sample_unit:
+          type: string
+        profile_bytes:
+          type: string
+          format: byte
+          description: Exact persisted protobuf or legacy bytes encoded as base64.
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Searchable summaries; non-finite doubles use OTLP JSON strings NaN, Infinity and -Infinity.
+        resource_attributes:
+          type: object
+          additionalProperties: true
+        resource_schema_url:
+          type: string
+        scope_name:
+          type: string
+        scope_version:
+          type: string
+        scope_attributes:
+          type: object
+          additionalProperties: true
+        scope_dropped_attr_count:
+          type: integer
+          format: int32
+          description: Legacy signed scope dropped count, omitted when uint32 exceeds signed int32.
+        scope_schema_url:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        profile_storage_version:
+          type: integer
+          enum:
+          - 0
+          - 1
+          default: 0
+        profile_encoding:
+          type: string
+          enum:
+          - legacy-unversioned
+          - otlp-profiles-protobuf
+        profile_schema_version:
+          type: string
+          enum:
+          - '1'
+          nullable: true
+      required:
+      - timestamp
+
+    ProfileEntryResponse:
+      type: object
+      properties:
+        profile_id:
+          type: integer
+          format: int64
+          description: Database row identifier, distinct from the source OTLP profile ID.
+        timestamp_ns:
+          type: integer
+          format: int64
+          description: Signed database query index; ingestion time when source time is zero or outside signed bigint.
+        timestamp:
+          type: string
+          format: date-time
+        service_name:
+          type: string
+        service_namespace:
+          type: string
+        service_instance_id:
+          type: string
+        profile_type:
+          type: string
+          description: Arbitrary OTLP sample-type label, such as cpu or alloc_space.
+        duration_ns:
+          type: integer
+          format: int64
+          description: Legacy signed duration summary; zero for unsigned durations outside signed bigint.
+        sample_type:
+          type: string
+        sample_unit:
+          type: string
+        profile_storage_version:
+          type: integer
+          format: int32
+          description: 0 for unversioned legacy storage; 1 for explicitly versioned current OTLP storage.
+        profile_encoding:
+          type: string
+          description: legacy-unversioned or otlp-profiles-protobuf.
+        profile_schema_version:
+          type: string
+          description: Compiled OTLP development wire metadata version for current rows, presently 1. Does not assert
+            historical wire compatibility.
+        otel_profile_id:
+          type: string
+          description: Source 16-byte profile identity in hexadecimal.
+        profile_time_unix_nano:
+          type: string
+          pattern: ^[0-9]+$
+          description: Exact unsigned source nanoseconds, including zero and values above signed bigint.
+        duration_nano:
+          type: string
+          pattern: ^[0-9]+$
+          description: Exact unsigned source duration in nanoseconds.
+        profile_bytes:
+          type: string
+          format: byte
+          description: Exact persisted protobuf or legacy bytes encoded as base64.
+        profile_data:
+          description: Complete OTLP JSON container and dictionary for decoded current rows. Historical JSON remains
+            legacy JSON; legacy binary is omitted.
+        profile_decode_status:
+          type: string
+          enum:
+          - decoded
+          - legacy-opaque
+          - legacy-json
+          - error
+        profile_decode_error:
+          type: string
+          description: Explicit failure for invalid or unsupported versioned storage; raw base64 bytes are still returned.
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Searchable summaries; non-finite doubles use OTLP JSON strings NaN, Infinity and -Infinity.
+        resource_attributes:
+          type: object
+          additionalProperties: true
+        resource_schema_url:
+          type: string
+        scope_name:
+          type: string
+        scope_version:
+          type: string
+        scope_attributes:
+          type: object
+          additionalProperties: true
+        scope_dropped_attr_count:
+          type: integer
+          format: int32
+          description: Legacy signed scope dropped count, omitted when uint32 exceeds signed int32.
+        scope_schema_url:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        dropped_attr_count:
+          type: integer
+          format: int32
+          description: Legacy signed profile dropped count, distinct from scope; omitted on signed overflow.
+        profile_dropped_attributes_count:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+        resource_dropped_attributes_count:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+        scope_dropped_attributes_count:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+      required:
+      - profile_id
+      - timestamp_ns
+      - timestamp
+      - duration_ns
+      - profile_bytes
+      - profile_storage_version
+      - profile_encoding
+      - profile_decode_status
+    RunQueryResult:
+      type: object
+      properties:
+        Entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunEntryResponse'
+        NextCursor:
+          type: string
+        HasMore:
+          type: boolean
+    RunEntryResponse:
+      type: object
+      properties:
+        ID:
+          type: integer
+        SessionID:
+          type: string
+        ServiceName:
+          type: string
+        ScopeName:
+          type: string
+        Name:
+          type: string
+        StartTimestampNs:
+          type: integer
+        EndTimestampNs:
+          type: integer
+        TraceID:
+          type: string
+        ProcessorID:
+          type: integer
+        RunType:
+          type: integer
+        Metadata:
+          type: object
+        CreatedAt:
+          type: string
+          format: date-time
+        UpdatedAt:
+          type: string
+          format: date-time
+    SchemaList:
+      type: object
+      properties:
+        schemas:
+          type: array
+          items:
+            $ref: '#/components/schemas/Schema'
+          description: List of available schemas
+        total:
+          type: integer
+          description: Total number of schemas
+    Schema:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Schema ID
+        name:
+          type: string
+          description: Human-readable schema name
+        schema:
+          type: string
+          description: Database schema name (e.g., 'otel', 'custom_schema')
+        enabled:
+          type: boolean
+          description: Whether the schema is enabled
+        routing:
+          type: object
+          additionalProperties: true
+          description: Routing configuration for the schema
+        filter:
+          type: object
+          additionalProperties: true
+          description: Filter configuration for the schema
+        description:
+          type: string
+          description: Schema description
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional metadata for the schema
+        created_at:
+          type: string
+          format: date-time
+          description: Schema creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Schema last update timestamp
+      required:
+        - id
+        - schema
+        - enabled
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    # WebSocket control/meta message schemas
+    WSSetFilter:
+      type: object
+      required: [type, filter]
+      properties:
+        type:
+          type: string
+          enum: [set_filter]
+        filter:
+          type: object
+          additionalProperties: true
+          description: Mirrors filter keys accepted by corresponding GET endpoint (e.g., q, q_mode, service_in, severity_*, attr.*, res_attr.*)
+    WSAck:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [ack]
+    WSError:
+      type: object
+      required: [type, message]
+      properties:
+        type:
+          type: string
+          enum: [error]
+        message:
+          type: string
+    WSDropped:
+      type: object
+      required: [type, count]
+      properties:
+        type:
+          type: string
+          enum: [dropped]
+        count:
+          type: integer
+          minimum: 1
+    WSReady:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [ready]
+    WSRunUpsert:
+      type: object
+      required: [type, run]
+      properties:
+        type:
+          type: string
+          enum: [run_upsert]
+        run:
+          $ref: '#/components/schemas/RunEntryResponse'
+    WSRunEnded:
+      type: object
+      required: [type, run]
+      properties:
+        type:
+          type: string
+          enum: [run_ended]
+        run:
+          $ref: '#/components/schemas/RunEntryResponse'
+    MetricsResponse:
+      type: object
+      required:
+      - data
+      - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricEntryResponse'
+        pagination:
+          type: object
+          required:
+          - next_cursor
+          - prev_cursor
+          - has_next_page
+          - has_prev_page
+          properties:
+            next_cursor:
+              type: string
+            prev_cursor:
+              type: string
+            has_next_page:
+              type: boolean
+            has_prev_page:
+              type: boolean

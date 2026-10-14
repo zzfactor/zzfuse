@@ -1,0 +1,5 @@
+# Profile wire fixtures
+
+`current-profiles.pb` and its OTLP JSON companion were generated with pprofile 0.163.0 / pdata 1.69.0, development metadata version `1`. Run `go run -mod=readonly testdata/generate-profiles.go` from `pkg/repository` to reproduce. The full request has three profiles across two resources, complete shared dictionary tables, nested resource/scope attributes, dropped counts, links, source IDs, values above 2^53, signed and zero samples, and binary original JFR payloads. The third profile uses maximum uint64 time/duration and maximum uint32 dropped counts. `current-profile-row0.pb` and row1 isolate one normal profile with complete dictionary/context.
+
+`profiles-0.135/legacy-0.135-profile-row.pb` is a genuine old exporter row generated using pprofile 0.135.0 / pdata 1.41.0. Its generator, pinned module file, JSON view, digest and summary are retained beside it. That development schema has repeated sample types, raw attribute keys and a different link-index contract. Current pdata cannot decode it; tests prove opaque byte preservation and never claim automatic conversion.

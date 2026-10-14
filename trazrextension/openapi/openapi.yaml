@@ -1,0 +1,112 @@
+openapi: 3.0.3
+info:
+  title: Trazr Modular API
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: http://localhost:18888
+  - url: https://{env}.api.example.com
+    variables:
+      env:
+        enum: [dev, staging, prod]
+        default: dev
+security:
+  - bearerAuth: []
+  - ApiKeyAuth: []
+tags:
+  - name: Configuration
+    description: Endpoints for managing user, organization, and project configurations.
+  - name: Realtime Streams
+    description: WebSocket endpoints for streaming live data.
+  - name: Notifications
+    description: Enqueue and manage user-targeted notifications.
+  - name: Logs
+    description: Log retrieval and cursor generation endpoints.
+  - name: Traces
+    description: Trace retrieval and cursor generation endpoints.
+  - name: Metrics
+    description: Metric retrieval and cursor generation endpoints.
+  - name: Vector Store
+    description: Vector similarity search endpoints.
+  - name: Runs
+    description: Run retrieval and management endpoints.
+  - name: Profiles
+    description: Profile retrieval and management endpoints.
+paths:
+  /api/v1/auth/reset-password:
+    $ref: ./paths/auth_password_reset.yaml#/paths/~1api~1v1~1auth~1reset-password
+  /api/v1/auth/request-password-reset:
+    $ref: ./paths/auth_password_reset.yaml#/paths/~1api~1v1~1auth~1request-password-reset
+  /api/v1/user/configs:
+    $ref: ./paths/user_configs.yaml#/paths/~1api~1v1~1user~1configs
+  /api/v1/user/configs/{key}:
+    $ref: ./paths/user_configs.yaml#/paths/~1api~1v1~1user~1configs~1{key}
+  /api/v1/orgs/{org_id}/configs:
+    $ref: ./paths/org_configs.yaml#/paths/~1api~1v1~1orgs~1{org_id}~1configs
+  /api/v1/orgs/{org_id}/configs/{key}:
+    $ref: ./paths/org_configs.yaml#/paths/~1api~1v1~1orgs~1{org_id}~1configs~1{key}
+  /api/v1/orgs/{org_id}/projects/{project_id}/configs:
+    $ref: ./paths/project_configs.yaml#/paths/~1api~1v1~1orgs~1{org_id}~1projects~1{project_id}~1configs
+  /api/v1/orgs/{org_id}/projects/{project_id}/configs/{key}:
+    $ref: ./paths/project_configs.yaml#/paths/~1api~1v1~1orgs~1{org_id}~1projects~1{project_id}~1configs~1{key}
+  /api/v1/stream/user/notifications:
+    $ref: ./paths/notifications_stream.yaml#/paths/~1api~1v1~1stream~1user~1notifications
+  /api/v1/stream/logs:
+    $ref: ./paths/logs_stream.yaml#/paths/~1api~1v1~1stream~1logs
+  /api/v1/stream/spans:
+    $ref: ./paths/traces_stream.yaml#/paths/~1api~1v1~1stream~1spans
+  /api/v1/stream/metrics:
+    $ref: ./paths/metrics_stream.yaml#/paths/~1api~1v1~1stream~1metrics
+  /api/v1/stream/metrics/sum:
+    $ref: ./paths/metrics_stream.yaml#/paths/~1api~1v1~1stream~1metrics~1sum
+  /api/v1/user/notifications:
+    $ref: ./paths/notifications_enqueue.yaml#/paths/~1api~1v1~1user~1notifications
+  /api/v1/logs:
+    $ref: ./paths/logs.yaml#/paths/~1api~1v1~1logs
+  /api/v1/logs/{id}:
+    $ref: ./paths/logs.yaml#/paths/~1api~1v1~1logs~1{id}
+  /api/v1/logs/cursor:
+    $ref: ./paths/logs.yaml#/paths/~1api~1v1~1logs~1cursor
+  /api/v1/traces:
+    $ref: ./paths/traces.yaml#/paths/~1api~1v1~1traces
+  /api/v1/traces/{id}:
+    $ref: ./paths/traces.yaml#/paths/~1api~1v1~1traces~1{id}
+  /api/v1/traces/cursor:
+    $ref: ./paths/traces.yaml#/paths/~1api~1v1~1traces~1cursor
+  /api/v1/metrics:
+    $ref: ./paths/metrics.yaml#/paths/~1api~1v1~1metrics
+  /api/v1/metrics/{type}/{id}:
+    $ref: ./paths/metrics.yaml#/paths/~1api~1v1~1metrics~1{type}~1{id}
+  /api/v1/metrics/{id}:
+    $ref: ./paths/metrics.yaml#/paths/~1api~1v1~1metrics~1{id}
+  /api/v1/metrics/cursor:
+    $ref: ./paths/metrics.yaml#/paths/~1api~1v1~1metrics~1cursor
+  /api/v1/config/{config_type}:
+    $ref: ./paths/config.yaml#/paths/~1api~1v1~1config~1{config_type}
+  /api/v1/config/{config_type}/{id}:
+    $ref: ./paths/config.yaml#/paths/~1api~1v1~1config~1{config_type}~1{id}
+  /api/v1/config/statistics:
+    $ref: ./paths/config.yaml#/paths/~1api~1v1~1config~1statistics
+  /api/v1/vectorstore/search:
+    $ref: ./paths/vectorstore.yaml#/paths/~1api~1v1~1vectorstore~1search
+  /api/v1/runs:
+    $ref: ./paths/runs.yaml#/paths/~1api~1v1~1runs
+  /api/v1/runs/{id}:
+    $ref: ./paths/runs.yaml#/paths/~1api~1v1~1runs~1{id}
+  /api/v1/profiles:
+    $ref: ./paths/profiles.yaml#/paths/~1api~1v1~1profiles
+  /api/v1/schemas:
+    $ref: ./paths/schemas.yaml#/paths/~1api~1v1~1schemas
+components:
+  securitySchemes:
+    $ref: ./components/security.yaml#/components/securitySchemes
+  parameters:
+    $ref: ./components/parameters.yaml#/components/parameters
+  responses:
+    $ref: ./components/responses.yaml#/components/responses
+  schemas:
+    $ref: ./components/schemas.yaml#/components/schemas
+  headers:
+    $ref: ./components/headers.yaml#/components/headers

@@ -1,0 +1,28 @@
+paths:
+  /api/v1/vectorstore/search:
+    post:
+      tags:
+        - Vector Store
+      summary: Search vector store
+      description: Perform similarity search in a configured vector store
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/components/schemas/VectorStoreSearchRequest
+      responses:
+        '200':
+          description: Search results returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: ../components/schemas.yaml#/components/schemas/VectorStoreSearchResponse
+        '400':
+          $ref: ../components/responses.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../components/responses.yaml#/components/responses/Unauthorized
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError

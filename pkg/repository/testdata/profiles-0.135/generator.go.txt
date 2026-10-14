@@ -1,0 +1,53 @@
+package main
+import (
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "fmt"
+ "os"
+ "go.opentelemetry.io/collector/pdata/pcommon"
+ "go.opentelemetry.io/collector/pdata/pprofile"
+)
+func main() {
+ pd:=pprofile.NewProfiles();d:=pd.ProfilesDictionary()
+ d.StringTable().FromRaw([]string{"", "cpu", "nanoseconds", "alloc_space", "bytes", "doWork", "worker.go", "libworker.so", "legacy comment", "count", "sample_count", "thread.id"})
+ a:=d.AttributeTable().AppendEmpty();a.SetKey("unused.placeholder");a.Value().SetStr("keep-index-0")
+ a=d.AttributeTable().AppendEmpty();a.SetKey("profile.owner");a.Value().SetStr("team-core")
+ a=d.AttributeTable().AppendEmpty();a.SetKey("thread.id");a.Value().SetInt(42)
+ a=d.AttributeTable().AppendEmpty();a.SetKey("custom.data");a.Value().SetEmptyMap().PutStr("nested","value")
+ au:=d.AttributeUnits().AppendEmpty();au.SetAttributeKeyStrindex(11);au.SetUnitStrindex(9)
+ f:=d.FunctionTable().AppendEmpty();f.SetNameStrindex(5);f.SetSystemNameStrindex(5);f.SetFilenameStrindex(6);f.SetStartLine(10)
+ m:=d.MappingTable().AppendEmpty();m.SetFilenameStrindex(7);m.SetMemoryStart(4096);m.SetMemoryLimit(8192);m.SetFileOffset(128)
+ for i:=0;i<3;i++{l:=d.LocationTable().AppendEmpty();l.SetMappingIndex(0);l.SetAddress(uint64(4096+i*8));line:=l.Line().AppendEmpty();line.SetFunctionIndex(0);line.SetLine(int64(10+i));line.SetColumn(2);l.AttributeIndices().FromRaw([]int32{2})}
+ link:=d.LinkTable().AppendEmpty();link.SetTraceID(pcommon.TraceID{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16});link.SetSpanID(pcommon.SpanID{1,2,3,4,5,6,7,8})
+ link=d.LinkTable().AppendEmpty();link.SetTraceID(pcommon.TraceID{16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1});link.SetSpanID(pcommon.SpanID{8,7,6,5,4,3,2,1})
+ rp:=pd.ResourceProfiles().AppendEmpty();rp.SetSchemaUrl("https://opentelemetry.io/schemas/1.34.0");r:=rp.Resource();r.Attributes().PutStr("service.name","profile-review");r.Attributes().PutStr("service.namespace","legacy-team");r.Attributes().PutStr("service.instance.id","legacy-instance");r.Attributes().PutEmptyMap("resource.nested").PutStr("zone","east");r.SetDroppedAttributesCount(3)
+ sp:=rp.ScopeProfiles().AppendEmpty();sp.SetSchemaUrl("https://opentelemetry.io/schemas/1.33.0");scope:=sp.Scope();scope.SetName("legacy.profiler");scope.SetVersion("0.135-fixture");scope.Attributes().PutStr("scope.note","scope-attribute-string");scope.Attributes().PutBool("scope.enabled",true);scope.SetDroppedAttributesCount(2)
+ for i:=0;i<2;i++{
+  p:=sp.Profiles().AppendEmpty();p.SetProfileID(pprofile.ProfileID{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,byte(16+i)});p.SetTime(pcommon.Timestamp(1777777777123456789+uint64(i)));p.SetDuration(pcommon.Timestamp(9000000000));p.SetDroppedAttributesCount(4)
+  p.SampleType().AppendEmpty().SetTypeStrindex(1);p.SampleType().At(0).SetUnitStrindex(2)
+  p.SampleType().AppendEmpty().SetTypeStrindex(3);p.SampleType().At(1).SetUnitStrindex(4)
+  p.SetDefaultSampleTypeIndex(1);p.PeriodType().SetTypeStrindex(10);p.PeriodType().SetUnitStrindex(9);p.SetPeriod(17)
+  p.AttributeIndices().FromRaw([]int32{1,3});p.LocationIndices().FromRaw([]int32{1,2,0});p.CommentStrindices().FromRaw([]int32{8})
+  p.SetOriginalPayloadFormat("jfr");p.OriginalPayload().FromRaw([]byte{0,1,127,128,255,10,13})
+  s:=p.Sample().AppendEmpty();s.SetLocationsStartIndex(0);s.SetLocationsLength(2);s.Value().FromRaw([]int64{7+int64(i),11+int64(i)});s.AttributeIndices().FromRaw([]int32{2});s.SetLinkIndex(0);s.TimestampsUnixNano().FromRaw([]uint64{1777777777123456789,1777777777123456790})
+  s=p.Sample().AppendEmpty();s.SetLocationsStartIndex(2);s.SetLocationsLength(1);s.Value().FromRaw([]int64{-5,0});s.AttributeIndices().FromRaw([]int32{3});s.SetLinkIndex(1);s.TimestampsUnixNano().FromRaw([]uint64{1777777777123456791})
+ }
+ pb,err:=(&pprofile.ProtoMarshaler{}).MarshalProfiles(pd);if err!=nil{panic(err)}
+ js,err:=(&pprofile.JSONMarshaler{}).MarshalProfiles(pd);if err!=nil{panic(err)}
+ if err=os.WriteFile("legacy-0.135-profiles.pb",pb,0600);err!=nil{panic(err)}
+ if err=os.WriteFile("legacy-0.135-profiles.json",js,0600);err!=nil{panic(err)}
+ row:=pprofile.NewProfiles()
+ dr:=row.ResourceProfiles().AppendEmpty();rp.Resource().CopyTo(dr.Resource());dr.SetSchemaUrl(rp.SchemaUrl())
+ ds:=dr.ScopeProfiles().AppendEmpty();sp.Scope().CopyTo(ds.Scope());ds.SetSchemaUrl(sp.SchemaUrl())
+ sp.Profiles().At(0).CopyTo(ds.Profiles().AppendEmpty());d.CopyTo(row.ProfilesDictionary())
+ rowPB,err:=(&pprofile.ProtoMarshaler{}).MarshalProfiles(row);if err!=nil{panic(err)}
+ rowJSON,err:=(&pprofile.JSONMarshaler{}).MarshalProfiles(row);if err!=nil{panic(err)}
+ os.WriteFile("legacy-0.135-profile-row.pb",rowPB,0600);os.WriteFile("legacy-0.135-profile-row.json",rowJSON,0600)
+ rowHash:=sha256.Sum256(rowPB)
+ rowSummary:=map[string]any{"producer":"pprofile v0.135.0 / pdata v1.41.0","construction":"matches prior exporter: one profile with full shared dictionary/resource/scope/schemaURLs copied","profiles":1,"sha256":hex.EncodeToString(rowHash[:]),"bytes":len(rowPB),"otel_profile_id":"0102030405060708090a0b0c0d0e0f10","timestamp_ns":"1777777777123456789","duration_ns":"9000000000","profile_type":"cpu","sample_unit":"nanoseconds","sample_type_count":2,"sample_count":2,"first_values":[]int64{7,11},"second_values":[]int64{-5,0},"dictionary_locations":3,"dictionary_links":2,"legacy_first_sample_link_index":0,"original_payload_hex":"00017f80ff0a0d"}
+ rowOut,_:=json.MarshalIndent(rowSummary,"","  ");os.WriteFile("legacy-row-summary.json",rowOut,0600);fmt.Println("Isolated old exporter row:",string(rowOut))
+ hash:=sha256.Sum256(pb)
+ summary:=map[string]any{"producer":"pprofile v0.135.0 / pdata v1.41.0","sha256":hex.EncodeToString(hash[:]),"bytes":len(pb),"profiles":2,"sample_types":[]string{"cpu/nanoseconds","alloc_space/bytes"},"samples_per_profile":2,"first_profile_values":[][]int64{{7,11},{-5,0}},"default_sample_type_index":1,"links_include_valid_index_zero":true,"shared_dictionary":true,"attribute_units":"thread.id/count","original_payload_hex":"00017f80ff0a0d"}
+ out,_:=json.MarshalIndent(summary,"","  ");os.WriteFile("legacy-fixture-summary.json",out,0600);fmt.Println(string(out))
+}

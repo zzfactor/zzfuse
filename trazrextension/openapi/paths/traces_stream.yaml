@@ -1,0 +1,145 @@
+paths:
+  /api/v1/stream/spans:
+    get:
+      tags:
+        - Traces
+        - Realtime Streams
+      summary: Stream traces/spans in real-time (WebSocket)
+      operationId: streamSpans
+      description: |
+        Establishes a WebSocket connection for real-time trace/span streaming with optional preloading and dynamic filtering.
+        
+        **Connection Flow:**
+        1. Client connects with initial filters via query parameters
+        2. Optional preload of historical data (if cursor/time parameters provided)
+        3. Real-time streaming of new trace/span entries matching filters
+        4. Dynamic filter updates via WebSocket messages
+        
+        **WebSocket Messages:**
+        - **Incoming (Client → Server):**
+          - `{"type":"set_filter","filter":{...}}` - Update filters dynamically
+          - `{"type":"keepalive"}` - Keep connection alive
+        - **Outgoing (Server → Client):**
+          - Trace/span entries as JSON objects
+          - `{"type":"ready"}` - Preload complete (if applicable)
+          - `{"type":"ack"}` - Filter update acknowledged
+          - `{"type":"error","message":"..."}` - Error messages
+          - `{"type":"dropped","count":N}` - Dropped message notification
+      parameters:
+        - $ref: ../components/parameters.yaml#/components/parameters/Start
+        - $ref: ../components/parameters.yaml#/components/parameters/End
+        - $ref: ../components/parameters.yaml#/components/parameters/Last
+        - $ref: ../components/parameters.yaml#/components/parameters/StreamCursor
+        - $ref: ../components/parameters.yaml#/components/parameters/Limit
+        - $ref: ../components/parameters.yaml#/components/parameters/Direction
+        - $ref: ../components/parameters.yaml#/components/parameters/Service
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNames
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameLike
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameRegex
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNamePrefix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameSuffix
+        - $ref: ../components/parameters.yaml#/components/parameters/ServiceNameContains
+        - $ref: ../components/parameters.yaml#/components/parameters/Schema
+        - $ref: ../components/parameters.yaml#/components/parameters/TimestampGte
+        - $ref: ../components/parameters.yaml#/components/parameters/TimestampLte
+        - $ref: ../components/parameters.yaml#/components/parameters/Query
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrEq
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrIn
+        - $ref: ../components/parameters.yaml#/components/parameters/AttrExists
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrEq
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrIn
+        - $ref: ../components/parameters.yaml#/components/parameters/ResAttrExists
+        - $ref: ../components/parameters.yaml#/components/parameters/WaitForEstablished
+        - name: span_name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by span name
+        - name: trace_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by trace ID
+        - name: span_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by span ID
+        - name: parent_span_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by parent span ID
+        - name: span_kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [SPAN_KIND_UNSPECIFIED, SPAN_KIND_INTERNAL, SPAN_KIND_SERVER, SPAN_KIND_CLIENT, SPAN_KIND_PRODUCER, SPAN_KIND_CONSUMER]
+          description: Filter by span kind
+        - name: status_code
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [STATUS_CODE_UNSET, STATUS_CODE_OK, STATUS_CODE_ERROR]
+          description: Filter by span status code
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade successful)
+        '200':
+          description: Example stream messages and protocol documentation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  protocol:
+                    type: string
+                    example: "WebSocket"
+                  message_types:
+                    type: array
+                    items:
+                      type: string
+                    example: ["span_entry", "ready", "ack", "error", "dropped"]
+              examples:
+                span_entry:
+                  summary: Span entry message
+                  value:
+                    id: 12345
+                    timestamp: "2024-01-01T12:00:00Z"
+                    service_name: "api-gateway"
+                    span_name: "GET /api/users"
+                    trace_id: "abc123def456"
+                    span_id: "span789"
+                    parent_span_id: "parent123"
+                    span_kind: "SPAN_KIND_SERVER"
+                    status_code: "STATUS_CODE_OK"
+                    attributes:
+                      http.method: "GET"
+                      http.url: "/api/users"
+                ready_message:
+                  summary: Preload complete signal
+                  value:
+                    type: "ready"
+                filter_update:
+                  summary: Client filter update message
+                  value:
+                    type: "set_filter"
+                    filter:
+                      service_name_regex: "^api-.*"
+                      span_kind: "SPAN_KIND_SERVER"
+        '400':
+          $ref: ../components/responses.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../components/responses.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../components/responses.yaml#/components/responses/Forbidden
+        '422':
+          $ref: ../components/responses.yaml#/components/responses/UnprocessableEntity
+        '500':
+          $ref: ../components/responses.yaml#/components/responses/InternalServerError

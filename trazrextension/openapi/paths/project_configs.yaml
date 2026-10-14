@@ -1,0 +1,183 @@
+paths:
+  /api/v1/orgs/{org_id}/projects/{project_id}/configs:
+    get:
+      tags: [Configuration]
+      summary: List project configs
+      operationId: projectConfigsList
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id and project_id scopes/claims matching the path parameters.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - $ref: ../components/parameters.yaml#/components/parameters/Prefix
+        - $ref: ../components/parameters.yaml#/components/parameters/Limit
+        - $ref: ../components/parameters.yaml#/components/parameters/Cursor
+        - $ref: ../components/parameters.yaml#/components/parameters/Direction
+      responses:
+        '200':
+          description: List
+          headers:
+            X-Next-Cursor:
+              $ref: ../components/headers.yaml#/components/headers/X-Next-Cursor
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigListResult }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '403': { $ref: ../components/responses.yaml#/components/responses/Forbidden }
+  /api/v1/orgs/{org_id}/projects/{project_id}/configs/{key}:
+    get:
+      tags: [Configuration]
+      summary: Get a project config by key
+      operationId: projectConfigsGet
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id and project_id scopes/claims matching the path parameters.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Config entry
+          headers:
+            ETag:
+              $ref: ../components/headers.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigEntryResponse }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '403': { $ref: ../components/responses.yaml#/components/responses/Forbidden }
+        '404': { $ref: ../components/responses.yaml#/components/responses/NotFound }
+    put:
+      tags: [Configuration]
+      summary: Upsert a project config (replace)
+      operationId: projectConfigsUpsert
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id and project_id scopes/claims matching the path parameters.
+        Use If-Match with the previous ETag to ensure optimistic concurrency.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: ../components/parameters.yaml#/components/parameters/IfMatchHeader
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigUpsertRequest }
+      responses:
+        '200':
+          description: Upserted
+          headers:
+            ETag:
+              $ref: ../components/headers.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigEntryResponse }
+        '201':
+          description: Created
+          headers:
+            ETag:
+              $ref: ../components/headers.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigEntryResponse }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '403': { $ref: ../components/responses.yaml#/components/responses/Forbidden }
+        '412': { $ref: ../components/responses.yaml#/components/responses/PreconditionFailed }
+    patch:
+      tags: [Configuration]
+      summary: Update a project config (deep-merge objects)
+      operationId: projectConfigsPatch
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id and project_id scopes/claims matching the path parameters.
+        Use If-Match with the previous ETag to ensure optimistic concurrency.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: ../components/parameters.yaml#/components/parameters/IfMatchHeader
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigPatchRequest }
+      responses:
+        '200':
+          description: Updated
+          headers:
+            ETag:
+              $ref: ../components/headers.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema: { $ref: ../components/schemas.yaml#/components/schemas/ConfigEntryResponse }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '403': { $ref: ../components/responses.yaml#/components/responses/Forbidden }
+        '404': { $ref: ../components/responses.yaml#/components/responses/NotFound }
+        '412': { $ref: ../components/responses.yaml#/components/responses/PreconditionFailed }
+    delete:
+      tags: [Configuration]
+      summary: Delete a project config
+      operationId: projectConfigsDelete
+      description: |
+        Security: Requires JWT (bearerAuth) with org_id and project_id scopes/claims matching the path parameters.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: ../components/responses.yaml#/components/responses/Unauthorized }
+        '403': { $ref: ../components/responses.yaml#/components/responses/Forbidden }
+        '404': { $ref: ../components/responses.yaml#/components/responses/NotFound }
