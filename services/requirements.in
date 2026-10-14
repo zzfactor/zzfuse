@@ -12,6 +12,6 @@ python-dotenv==1.2.4
 prometheus-fastapi-instrumentator==8.1.0
 prometheus-client==0.26.0
 sentence-transformers==6.1.0
-torch==2.14.1 ; sys_platform != "linux"
+torch==2.14.1+cpu ; sys_platform != "linux"
 torch==2.14.1+cpu ; sys_platform == "linux"
 python-multipart==0.0.32
