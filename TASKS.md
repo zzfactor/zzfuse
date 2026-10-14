@@ -17,10 +17,10 @@
 - [x] Verify PostgreSQL 18 and current Timescale/vector extensions on ARM64 and AMD64.
 - [x] Complete real browser/telemetry/NATS/model/production-worker full-stack validation.
 - [x] Repair current-DDL span/metric readback, metric typed IDs, and vector content/hash/precision contracts.
+- [x] Audit source/history and create the public zzfactor/zzfuse repository from a fresh snapshot.
 
 ## Future work
 
-- [ ] Review history and create the intended zzfactor/zzfuse repository before public publication.
 - [ ] Enforce database-backed JWT session revocation across Collector HTTP/WebSocket routes, including password reset and logout.
 - [ ] Apply on-demand worker time bounds and requested batch sizes to signal fetches.
 
