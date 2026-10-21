@@ -3,7 +3,7 @@ module trazr-mcp
 go 1.27.2
 
 require (
-	github.com/mark3labs/mcp-go v1.2.1
+	github.com/mark3labs/mcp-go v1.3.0
 	github.com/medxops/trazr-otel/pkg/auth/client v0.0.0-00010101000000-000000000000
 )
 
