@@ -1,11 +1,11 @@
 # Build stage
-FROM golang:1.27.2@sha256:820153096fda4de6ac1b7194d12e416b7dd8f4e9a33d17e0345b111b945162d8 AS builder
+FROM golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b AS builder
 WORKDIR /app/trazr-mcp
 # Build from the repository root so the local auth/client replacement is present.
 COPY trazr-mcp/ ./
 COPY pkg/auth/client/ ../pkg/auth/client/
 RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -o /out/trazr-mcp .
 
-FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
 COPY --from=builder /out/trazr-mcp /trazr-mcp
 ENTRYPOINT ["/trazr-mcp"]

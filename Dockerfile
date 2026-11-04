@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.27.2@sha256:820153096fda4de6ac1b7194d12e416b7dd8f4e9a33d17e0345b111b945162d8 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b AS build
 ARG TARGETOS TARGETARCH
 WORKDIR /app
 COPY pkg/ ./pkg/
@@ -11,7 +11,7 @@ WORKDIR /app/trazr-otel
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -trimpath -o /out/otelcol-custom .
 RUN mkdir -m 0700 -p /out/queue && chown 65532:65532 /out/queue
 
-FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
 WORKDIR /
 COPY --from=build /out/otelcol-custom /otelcol-custom
 COPY config.yaml /etc/otelcol/config.yaml
